@@ -1,0 +1,65 @@
+[project]
+name = "whetstone"
+version = "0.1.0"
+description = "WHETSTONE — end-to-end training procedure for installing a compact reasoning style via verifiable-reward RL."
+requires-python = ">=3.11"
+dependencies = [
+    # Inference (Stage 1, 4, 5.0) — also pulls a CUDA-13 torch compatible with Blackwell.
+    "vllm==0.23.0",
+    # Training stack. transformers ≥5.5.2 carries the gemma-4 KV-sharing fix
+    # (PR #45312); 5.8.1 is the verified-good pin from gemma4_learnings.md.
+    "transformers>=5.8.1",
+    "accelerate>=1.13.0",
+    "peft==0.19.1",
+    # Liger 0.8.0 returns a 4-tuple from unpack_cross_entropy_result; the gemma4
+    # Liger patch (whetstone/patches/gemma4_liger_patch.py) assumes that shape.
+    "liger-kernel==0.8.0",
+    "trl>=1.4.0",
+    "datasets>=4.8.5",
+    "safetensors>=0.4",
+    # Audit / cloud API (Stage 2.5, Stage 4).
+    "anthropic>=0.40",
+    # CLI helpers used by the gemma4 patch files.
+    "fire>=0.6",
+    "loguru>=0.7",
+    "pyyaml>=6",
+]
+
+[project.optional-dependencies]
+# Qwen3.5 / Qwen3-Next paths only — NOT required for Gemma 4. Skipped on dev/prod
+# unless you target a different base family.
+fla = [
+    "flash-linear-attention==0.5.0",
+    "causal-conv1d==1.6.2.post1",
+]
+
+[tool.uv]
+# Blackwell (RTX 5090 dev, GB200 prod) needs CUDA 13 wheels. Pull torch from the
+# cu130 index. The nvcr.io/nvidia/pytorch:26.05-py3 container already ships a
+# cu130 torch; if you install into the container's environment (--system),
+# `uv pip install` keeps the container torch as long as the constraint here is
+# satisfied, so the index mostly serves fresh installs / dev hosts without NGC.
+# When running inside the container, prefer `uv pip install --system .` to layer
+# whetstone on top of the NGC stack rather than building an isolated venv.
+default-groups = []
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu130" }
+torchvision = { index = "pytorch-cu130" }
+torchaudio = { index = "pytorch-cu130" }
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
+[tool.uv.pip]
+# Keep the container's torch when installing into the NGC pytorch image.
+no-build-isolation-package = ["causal-conv1d"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["whetstone"]

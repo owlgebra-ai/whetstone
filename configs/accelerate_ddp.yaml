@@ -1,0 +1,33 @@
+# accelerate config: DDP for Gemma-4 LoRA SFT on GB200.
+#
+# Per gemma4_learnings.md: "Use DDP (not DeepSpeed ZeRO-3) for LoRA — ZeRO-3
+# silently corrupts later-layer adapters (empty tensors). e4b (~8B) fits per
+# 80GB GPU, so DDP is fine and gives clean standard adapter checkpoints."
+#
+# GB200 has 180GB HBM per GPU, so a full bf16 8B model + AdamW state (~70GB)
+# fits with headroom for activations. This makes DDP the simpler choice vs
+# FSDP NO_WRAP for full-param training too, provided batch fits.
+#
+# Use this config when:
+#   * Training Gemma-4 LoRA on any multi-GPU node.
+#   * Full-param SFT on >=80GB GPUs (GB200, H100).
+#
+# Switch to configs/accelerate_fsdp2.yaml (FSDP NO_WRAP) only when:
+#   * VRAM-constrained (dev box, 32GB-class GPUs).
+#
+# Override num_processes for your node: `accelerate launch --num_processes N`.
+compute_environment: LOCAL_MACHINE
+debug: false
+distributed_type: MULTI_GPU
+downcast_bf16: 'no'
+machine_rank: 0
+main_training_function: main
+mixed_precision: bf16
+num_machines: 1
+num_processes: 8
+rdzv_backend: static
+same_network: true
+tpu_env: []
+tpu_use_cluster: false
+tpu_use_sudo: false
+use_cpu: false
