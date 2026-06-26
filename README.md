@@ -1,4 +1,7 @@
 # whetstone
+
+## run harvest
+
 ```
 for gpu in 0 1 2 3 4 5 6 7; do
   CUDA_VISIBLE_DEVICES=\$gpu nohup .venv/bin/python scripts/harvest.py \
@@ -11,4 +14,13 @@ for gpu in 0 1 2 3 4 5 6 7; do
     --worker_id \$gpu --n_workers 8 --batch 64 \
     > logs/<RUN>_harvest_w\${gpu}.log 2>&1 &
 done
+```
+
+## prepare data
+```
+python scripts/build_train_pool.py \
+  --out_dir data/interim \
+  --n_train 30000 --n_val 2000 \
+  --weights 'openr1-math:1,nemotron-sft-math:1,nemotron-math-proofs:1' \
+  --seed 0
 ```
