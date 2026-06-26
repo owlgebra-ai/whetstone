@@ -8,8 +8,6 @@ replaces the forward with one that calls ``LigerForCausalLMLoss``
 (fused linear + shift + cross-entropy, no logit materialization) and
 passes ``final_logit_softcapping`` through so the Gemma-4 softcap stays
 in-kernel.
-
-Pattern mirrors ``mistral3_liger_patch.py``.
 """
 import torch
 from dataclasses import dataclass

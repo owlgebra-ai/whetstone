@@ -19,12 +19,12 @@ Usage
 -----
 Programmatic::
 
-    from walrus.train.gemma4_vllm_patch import Gemma4PatchModelForVllm
+    from whetstone.patches.gemma4_vllm_patch import Gemma4PatchModelForVllm
     Gemma4PatchModelForVllm(ckpt_dir).patch(out_dir)
 
 CLI::
 
-    uv run python -m walrus.train.gemma4_vllm_patch --ckpt <in> --out <out>
+    uv run python -m whetstone.patches.gemma4_vllm_patch --ckpt <in> --out <out>
 """
 from __future__ import annotations
 
