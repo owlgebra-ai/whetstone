@@ -81,7 +81,7 @@ def _normalize(rec: dict, source: str, idx: int) -> dict | None:
 
 def _load_openr1() -> Iterable[dict]:
     from datasets import load_dataset
-    ds = load_dataset("open-r1/OpenR1-Math-220k", split="train")
+    ds = load_dataset("open-r1/OpenR1-Math-220k", split="train", streaming=True)
     for i, rec in enumerate(ds):
         out = _normalize(rec, "openr1-math", i)
         if out is not None:
@@ -90,7 +90,7 @@ def _load_openr1() -> Iterable[dict]:
 
 def _load_nemotron_sft() -> Iterable[dict]:
     from datasets import load_dataset
-    ds = load_dataset("nvidia/Nemotron-SFT-Math-v4", split="train")
+    ds = load_dataset("nvidia/Nemotron-SFT-Math-v4", split="train", streaming=True)
     for i, rec in enumerate(ds):
         out = _normalize(rec, "nemotron-sft-math", i)
         if out is not None:
@@ -99,7 +99,7 @@ def _load_nemotron_sft() -> Iterable[dict]:
 
 def _load_nemotron_proofs() -> Iterable[dict]:
     from datasets import load_dataset
-    ds = load_dataset("nvidia/Nemotron-Math-Proofs-v2", split="train")
+    ds = load_dataset("nvidia/Nemotron-Math-Proofs-v2", split="train", streaming=True)
     for i, rec in enumerate(ds):
         out = _normalize(rec, "nemotron-math-proofs", i)
         if out is not None:
