@@ -217,3 +217,8 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 .DS_Store
+
+# Artifact dirs — on the GPU boxes these are symlinks into /data/whetstone/
+# (the shared ZFS store). Never tracked; see activity 001.
+/data
+/logs
