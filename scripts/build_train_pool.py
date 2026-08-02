@@ -235,7 +235,7 @@ def main(argv=None):
     seen: set[str] = set()
     print(f"[load] {GSM8K_REPO}@{args.gsm8k_rev[:8]} ...", flush=True)
     gsm = _dedup(load_gsm8k(args.gsm8k_rev, limit), seen, "gsm8k")
-    print(f"[load] {DEEPMATH_REPO}@{args.deepmath_rev[:8]} (streaming) ...", flush=True)
+    print(f"[load] {DEEPMATH_REPO}@{args.deepmath_rev[:8]} ...", flush=True)
     dm = _dedup(load_deepmath(args.deepmath_rev, limit), seen, "deepmath")
 
     n_total = args.n_train + args.n_val
