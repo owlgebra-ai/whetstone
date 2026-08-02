@@ -59,3 +59,5 @@ Every packet starts with a status line: `STATUS: draft | ready | in-progress (ac
 | 001 | [001-environment-rebuild.md](001-environment-rebuild.md) | P0: rebuild turing + spark envs (vllm 0.26.0 / torch 2.11.0+cu130); verify Qwen3 thinking + d_t scoring | done |
 | 002 | [002-data-pools.md](002-data-pools.md) | P1: DeepMath-103K + GSM8K pool, SCA arm, 7 eval suites, standard_eval_300, contamination check | done |
 | 003 | [003-preconditions.md](003-preconditions.md) | P2: Qwen3 segment parser + tests, entropy audit (**restoration mode**), calibration probe (dropped v1 system prompt), register card staged | done |
+| 004 | [004-register-bakeoff.md](004-register-bakeoff.md) | P3a: register bake-off A (symbolic) vs B (caveman) — **A wins**; v1 chunkwise compression retired for one-shot | done |
+| 005 | [005-seed-corpus.md](005-seed-corpus.md) | P3: seed harvest (15%, K=2) + seed register corpus + H_pivot + Round-0 splits; vLLM server/client + crash-safe resume | in-progress |

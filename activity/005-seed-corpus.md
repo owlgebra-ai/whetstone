@@ -1,0 +1,242 @@
+# 005 — P3: seed harvest + seed register corpus
+
+- **Packet:** [packets/P3-seed-corpus.md](packets/P3-seed-corpus.md)
+- **Status:** in-progress
+- **Machine(s):** mac (code), turing (harvest + compression), spark (Δlogp, pre-flight)
+- **Code commit(s):** `ed5cd8e` → `<this commit>`
+- **Started / finished:** 2026-08-02 → —
+
+## Goal
+
+Build the only two corpora that exist before the teacher is trained (design §1,
+preconditions 3–4): a blind verifier-filtered seed harvest of native verbose
+traces, and the seed register corpus produced by one prompted-compression pass
+under the ratified card. Then pin **H_pivot** from the compact-register entropy
+histogram and write the Round-0 measurement sets P4 consumes.
+
+---
+
+## Infrastructure changes made for this packet
+
+Three changes to how generation runs, all driven by the scale jump from the
+bake-off's 50 traces to this packet's 9,000 rollouts.
+
+### 1. vLLM server/client instead of in-process batches
+
+`harvest.py` and `compress_local_versionB.py` both gained a `--server` mode that
+issues **one `/v1/completions` request per unit of work** against a resident
+`vllm serve`, with a bounded in-flight window.
+
+The offline `llm.generate(batch)` API is a **barrier**: the call does not return
+until the batch's slowest member finishes, so one 32k-token rollout idles every
+other slot in its batch. Independent requests let continuous batching refill a
+slot the moment it frees. The server also outlives the client, so a resume costs
+no model load — which matters when the run is expected to be interrupted.
+
+`/v1/completions` is used, never `/v1/chat/completions`: prompts are rendered by
+`apply_chat_template` in the calling script, which is what keeps the blindness
+contract (v1 §2) and `enable_thinking` (ROADMAP rule 4) auditable and identical
+to the offline path. vLLM 0.26.0 supports `return_token_ids: true`, so
+`completion_token_ids` survive the HTTP hop — necessary because
+`whetstone.segments` is token-level by design and re-tokenizing decoded text
+does not round-trip at the `<think>` boundary (design §12.1).
+
+Server command (turing):
+
+```bash
+source .venv/bin/activate && vllm serve Qwen/Qwen3-1.7B --port 8000 \
+  --max-model-len 34816 --max-num-seqs 64 --gpu-memory-utilization 0.90
+```
+
+Reported **GPU KV cache size: 226,800 tokens**, max concurrency 6.51× at full
+34,816-token requests.
+
+### 2. Crash-safe resume (`whetstone/runio.py`)
+
+Factored out of `harvest.py` and shared with the compressor:
+
+- **`repair_tail()`** truncates a torn trailing line *before* the file is
+  reopened for append. Skipping an unparseable line on read is **not**
+  sufficient: the next append lands on that same line, fusing garbage with a
+  good record and silently losing the good one on every future pass. This was a
+  latent bug in v1's resume machinery.
+- **`checkpoint()`** flushes + `fsync`s the corpus, then atomically replaces a
+  `<output>.progress.json` sidecar. Data is synced before the sidecar so the
+  sidecar can never advertise records that are not on disk. Runs on every exit
+  path, including `KeyboardInterrupt`.
+- Failed requests go to `<output>.failed.jsonl` as an audit trail and are
+  deliberately kept **out** of the corpus, so resume retries them.
+
+### 3. Per-rollout seeds
+
+A single `SamplingParams.seed` shared across a K-sample group makes every
+candidate for a problem byte-identical — the group collapses to K copies of one
+trace. Seeds are now derived as `sha1(uid:k:seed)[:8]` in both execution paths:
+candidates stay independent, and a resumed run regenerates exactly what the
+interrupted one would have.
+
+---
+
+## Runs
+
+### Run 1 — seed subset selection (turing, CPU) — 2026-08-02
+
+```bash
+.venv/bin/python scripts/select_seed_subset.py \
+  --pool /data/whetstone/data/pool/train_30k.jsonl \
+  --out_dir /data/whetstone/corpora/seed --frac 0.15 --seed 0
+```
+
+4,500 of 29,998 problems, proportional level strata preserved end to end
+(including level 10's single row):
+
+| level | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| pool | 6002 | 38 | 767 | 1510 | 4833 | 7488 | 3788 | 4303 | 1256 | 13 |
+| selected | 901 | 5 | 115 | 226 | 725 | 1124 | 569 | 646 | 188 | 1 |
+
+Sources: deepmath 3,600 / gsm8k 900. Outputs
+`/data/whetstone/corpora/seed/{subset_uids.json,subset.jsonl}`. The uid list is
+written first and is the resume contract (v1 §2.5).
+
+### Run 2 — blind seed harvest (turing) — 2026-08-02
+
+```bash
+source .venv/bin/activate && python -u scripts/harvest.py \
+  --input  /data/whetstone/corpora/seed/subset.jsonl \
+  --output /data/whetstone/corpora/seed/seed_harvest.jsonl \
+  --model Qwen/Qwen3-1.7B --server http://127.0.0.1:8000/v1 \
+  --K 2 --temperature 0.9 --top_p 0.95 --max_tokens 32768 \
+  --concurrency 96 --flush_every 20 --no_system_prompt \
+  --seed 0 --shuffle --worker_id 0 --n_workers 1
+```
+
+No system prompt and `--prefill_think` False, both now defaults (activity 003).
+Gemma scrub confirmed: `harvest.py` imports no `whetstone.patches.*` and builds
+prompts via `apply_chat_template`; the only Gemma references left are docstrings
+and the unused `--assistant_model` flag.
+
+**Resume test (packet-mandated), performed twice:**
+
+1. `kill -9` of the client at 124 records. The kill landed between writes, so the
+   file was already newline-terminated — the common case, and not a test of
+   anything. So:
+2. A partial record was appended by hand to simulate a kill *mid-`write()`*, and
+   the client restarted. It reported
+   `[resume] repaired torn tail: dropped 67 B of a partial record from the
+   previous run`, then `[resume] 124 (uid, k) pairs already done` and
+   `[load] 8876 rollouts to generate` — 9000 − 124, no duplicated and no skipped
+   work. The server drained to `Running: 0, Waiting: 0` when the client died and
+   was healthy for the restart.
+
+**Deviation — restarted once more at 2,059 records to add `--shuffle`.** See
+finding 2 below.
+
+Note: SIGINT does not stop this client promptly (asyncio blocked in
+`as_completed` with ~7k pending tasks); it needed SIGKILL after 40 s. Not a
+correctness problem — the file is line-buffered and `repair_tail` covers the
+torn-write case — but use `kill -9` and expect the in-flight window to be lost.
+
+---
+
+## Findings
+
+### 1. `max_tokens 32768` nearly eliminates cap-hits
+
+Activity 003 measured **9%** of rollouts hitting the 16,384-token cap. At 32,768
+the cap-hit rate is **0.4%**, and the segment-parser gate passes **99.6%** of
+rollouts (the only failures are `missing_think_close`, i.e. the cap-hits). The
+generous budget converts what was ~9% pure waste — traces with no answer segment,
+useless to both the verifier and Part 2 — into usable traces.
+
+### 2. Pool file order is level-clustered; the harvest must shuffle
+
+Pool JSONLs are sorted by `_uid`, so every `deepmath:*` problem is submitted
+before any `gsm8k:*` one — and gsm8k **is** the entire level-1 stratum. The
+partial yield report at 2,043 rollouts covered levels 2–10 and contained
+**zero** level-1 rollouts.
+
+Nothing is lost in a run that completes, but a level-stratified subset harvested
+in level-clustered order has an unrepresentative prefix, so an interrupted run
+is far less usable than its record count suggests. `harvest.py --shuffle`
+(seeded, applied to the remaining work — resume is a set difference on
+`(uid, k)`, not positional) fixes it.
+
+It also *helped throughput*: 8.1 → 12.9 rollouts/min, because short level-1
+traces now interleave with long deepmath ones and free KV slots faster.
+
+### 3. Card rendering silently re-admitted two non-notation sections
+
+`render_card()` dropped sections by **title substring**. Ratification renamed
+the headings — `Self-check before flipping` → `4. Self-check (completed at
+FILLED…)`, and the `Exemplars 3–8` ⟨PENDING⟩ stub became real exemplars — so the
+bake-off's drop list stopped matching, and **§1.6 (tokenizer audit) and §4
+(self-check checklist) leaked into the compressor's system prompt**.
+
+Both are meta about the card, not register spec; §4 even states "Combinatorics:
+none — known gap", which is a note to the card's authors and nonsense as an
+instruction to a compressor. Drop patterns are now anchored on section
+**numbers**, which are stable, and `render_card()` returns what it dropped so
+the sidecar records it.
+
+This is the class of failure that produces no error and degrades the corpus
+quietly. Worth a standing rule: **config selected by prose title is config that
+will drift.**
+
+### 4. Compression prompt, pinned for this packet
+
+`scripts/compress_local_versionB.py --dump-prompt` (CPU-only pre-flight, run on
+spark):
+
+| field | value |
+|---|---|
+| card blob sha | `de176e8044ab398465e7fd330f98b7c70bd399b0` |
+| card raw sha1 | `fc143757ef103f21874821a67e5c11b9b164b04b` |
+| card rendered sha1 | `e20ce28e111c646358fb745d2699e6a8e2f3804e` |
+| **rendered prompt sha1** | `c6656806ba8de84da2b1eb5e543bd006db7b286c` |
+| rendered prompt | 10,867 chars / **3,839 tokens** |
+| **boundary-token hits** | **0** |
+| dropped | §1.6 tokenizer audit, §2 structural whitelist, §4 self-check |
+| kept | §0, §1.1–1.5, §3 + exemplars 1–5 |
+
+**P3 gotcha 1 is enforced in code, not by inspection:**
+`assert_no_boundary_tokens()` refuses to run the compressor if the rendered
+scaffold+card encodes `<think>` / `</think>` / `<|im_start|>` / `<|im_end|>` /
+`<|endoftext|>`. It is checked on the *system prompt* rather than the templated
+prompt, because the chat template legitimately emits `im_start`/`im_end` at its
+own structural positions — from text we wrote the budget is exactly zero.
+
+---
+
+## Partial results (harvest at 2,043 / 9,000 rollouts)
+
+Sanity check against the activity-003 probe before burning the rest of the GPU
+time, as the packet requires.
+
+| level | problems | rollouts | verify | solve@K | gate | usable | cap-hit | think med | answer med |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 2 | 2 | 4 | 100.0% | 100.0% | 100.0% | 100.0% | 0.0% | 4115 | 585 |
+| 3 | 32 | 64 | 68.8% | 68.8% | 100.0% | 68.8% | 0.0% | 4770 | 814 |
+| 4 | 56 | 112 | 80.4% | 85.7% | 100.0% | 80.4% | 0.0% | 4592 | 729 |
+| 5 | 211 | 421 | 77.0% | 83.9% | 99.8% | 77.0% | 0.2% | 7204 | 808 |
+| 6 | 305 | 608 | 76.3% | 85.6% | 99.5% | 76.3% | 0.5% | 7572 | 831 |
+| 7 | 177 | 354 | 73.5% | 83.0% | 99.2% | 73.2% | 0.9% | 8725 | 868 |
+| 8 | 178 | 356 | 61.2% | 71.4% | 99.4% | 61.0% | 0.6% | 9080 | 831 |
+| 9 | 61 | 122 | 51.6% | 63.9% | 100.0% | 51.6% | 0.0% | 9376 | 806 |
+| 10 | 1 | 2 | 0.0% | 0.0% | 100.0% | 0.0% | 0.0% | 7677 | 866 |
+| **ALL** | **1023** | **2043** | **71.8%** | **80.5%** | **99.6%** | **71.7%** | **0.4%** | **7800** | **828** |
+
+**Verdict: healthy, run continues.** 71.8% against the probe's 73% is 1.2 points
+under, inside the expected ~3-point extraction-shape loss (activity 003 finding
+9). The U-shape reproduces: level 9 at 51.6% vs the probe's 50%. `verify` is per
+rollout; `solve@K` is per problem (either candidate correct); `usable` is
+verifier-correct **and** parser-gate-passing — the pool Part 2 selects from.
+
+*(Level 1 is absent from this table for the reason in finding 2, not because it
+failed. It appears from the shuffled restart onward.)*
+
+---
+
+## Conclusion
+
+⟨pending — written when the harvest, register corpus and H_pivot are done.⟩
