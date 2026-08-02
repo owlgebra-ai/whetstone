@@ -297,14 +297,58 @@ Two candidate causes, and they are separable:
 
    Exemplar 5 alone is 2.44 — close to what the model now produces.
 
-A controlled run is in flight: **the bake-off's own 50-trace subset,
-recompressed with the ratified card**. Same inputs, different card, so it
-isolates cause 2 from cause 1.
+**Controlled run — the bake-off's own 50 traces, recompressed with the ratified
+card.** Same inputs, different card, so it isolates cause 2 from cause 1:
 
-**This does not put the bake-off verdict in doubt** — 2.16 is still ~9× arm B's
-0.24, and the register is plainly installed. It is reported as **register-card
-feedback for the user** (which packet P3 Part 2 asks for explicitly), not as a
-threshold to nudge, and the corpus build proceeds either way.
+| on the SAME 50 bake-off traces | bake-off card | ratified card |
+|---|---|---|
+| markers /100 think tok | 3.68 | **3.49** |
+| compact think tokens, median | 176 | **150** |
+| compression ratio, median | 0.043 | **0.035** |
+| % under `B_target = 600` | 80% | **96%** |
+| cap-hit (runaway) | 10% | **6%** |
+| `verify_response` | 50/50 | 50/50 |
+
+**Cause 2 is refuted. The card costs ~5% of register density (3.68 → 3.49) and
+buys harder compression and half the runaways.** A 27% lower exemplar density
+moved the output by 5%, so the exemplar-density hypothesis does not carry.
+
+The drop to 2.16 is therefore **the input distribution**: 3.49 on 5,404-token
+verbose traces vs 2.16 on 8,796-token ones. The 32k harvest cap that bought
+finding 1's 0.4% cap-hit rate also produces longer source traces, which the
+model summarizes into wordier step bodies.
+
+**And "adoption" is the wrong word for what changed.** Structural marker
+*presence per trace* is essentially identical across the two input sets:
+
+| marker | bake-off traces (5.4k) | P3 traces (8.8k) |
+|---|---|---|
+| `goal:` | 50/50 (100%) | 19/20 (95%) |
+| `⇒` | 48/50 (96%) | 18/20 (90%) |
+| `let ` | 41/50 (82%) | 16/20 (80%) |
+| `chk:` | 21/50 (42%) | 2/20 (10%) |
+| `✓` | 21/50 (42%) | 2/20 (10%) |
+| `case ` | **0/50** | **0/20** |
+| `✗` | 1/50 | 0/20 |
+
+The register skeleton is installed just as reliably. What falls with input
+length is the **verification vocabulary** (`chk:`, `✓`: 42% → 10%), and the
+density figure falls mostly because compact traces get longer (209 vs 150
+tokens) with more English prose inside each numbered step.
+
+**`case ` is absent from both corpora**, including the bake-off corpus activity
+004 accepted — so the missing case-split vocabulary is a pre-existing property
+of the register as installed, not something ratification or this packet caused.
+
+**Verdict: no card edit proposed, build proceeds.** Reported as register-card
+feedback (packet P3 Part 2) with two items for the user:
+
+1. Long source traces yield compact traces that keep the skeleton but drop the
+   `chk:`/`✓` verification lines. If Stage A's teacher is meant to imitate
+   self-checking, the seed corpus under-supplies that exemplar.
+2. `case ` / `✗` are effectively absent corpus-wide, so branch elimination —
+   which card §1.3 says must never be silently dropped — has almost no exemplar
+   in the conditioning data.
 
 ---
 
