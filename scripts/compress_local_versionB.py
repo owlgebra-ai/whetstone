@@ -94,20 +94,29 @@ CHUNK_RULE = """- Rewrite ONLY the LAST ORIGINAL CHUNK shown. The earlier origin
   restarting at 1.
 """
 
-# Card sections that are *not* register spec and must not reach the compressor.
-# Dropping them is what keeps the two prompts differing only in notation:
-#   - the HTML provenance header (A's is ~26 lines and names rejected symbols;
-#     B's is ~14 and describes the bake-off) — pure asymmetric noise;
-#   - "Structural whitelist for R" — a P4 token-set artifact, not notation
-#     (A's carries four lines of raw Qwen3 token ids);
-#   - "Self-check before flipping" — a human ratification checklist, A only;
-#   - "Exemplars 3–8" — an A-only ⟨PENDING⟩ stub.
-# Every drop is recorded in the sidecar together with the rendered prompt, so
-# what the model actually saw is auditable.
-DROP_HEADINGS_DEFAULT = (
-    "Structural whitelist",
-    "Self-check before flipping",
-    "Exemplars 3–8",
+# Card sections that are *not* register spec and must not reach the compressor:
+#   - the HTML provenance header — pure noise;
+#   - §1.6 tokenizer audit — meta about the card (raw token ids, which symbols
+#     cost what). Telling the compressor about tokenizer internals is not
+#     notation;
+#   - §2 "Structural whitelist for R" — a P4 token-set artifact carrying raw
+#     Qwen3 token ids;
+#   - §4 self-check — a human ratification checklist. It also states "no
+#     combinatorics exemplar", which is a note to the *authors*, not an
+#     instruction the compressor should read.
+#
+# Matched on section NUMBER, not on the prose title. The bake-off (activity
+# 004) matched titles, and ratification renamed two headings — "Self-check
+# before flipping" -> "4. Self-check (completed at FILLED…)" and the
+# "Exemplars 3–8" stub -> real exemplars — which silently re-admitted the
+# checklist and the tokenizer audit into the prompt. Section numbers are the
+# stable identity; titles are prose and will drift again.
+DROP_SECTION_PATTERNS_DEFAULT = (
+    r"^#{2,3}\s*1\.6\b",        # tokenizer audit
+    r"^#{2,3}\s*2\.\s",         # structural whitelist for R
+    r"^#{2,3}\s*4\.\s",         # self-check checklist
+    r"Structural whitelist",    # title fallbacks, kept so an unnumbered
+    r"Self-check",              # variant of either section is still caught
 )
 _META_LINE = re.compile(r"^\*\*(Status|Author|Date|Target model):\*\*.*\n?", re.M)
 
@@ -118,21 +127,30 @@ STOP_STRINGS = ["\nCOMPACT CHUNK", "\nORIGINAL CHUNK", "<|im_end|>"]
 # card rendering + provenance
 # ---------------------------------------------------------------------------
 
-def render_card(text: str, drop_headings=DROP_HEADINGS_DEFAULT) -> str:
-    """Strip non-notation scaffolding from a register card."""
+def render_card(text: str, drop_patterns=DROP_SECTION_PATTERNS_DEFAULT
+                ) -> tuple[str, list[str]]:
+    """Strip non-notation scaffolding from a register card.
+
+    Returns ``(rendered_text, dropped_headings)``. The dropped list is recorded
+    in the run sidecar so what the model actually saw stays auditable, and so a
+    card edit that changes *which* sections drop is visible in the diff of two
+    runs rather than only in their outputs.
+    """
     text = re.sub(r"<!--.*?-->", "", text, flags=re.S)
     # Split on top-level (## / ###) headings, keep sections whose heading does
     # not match a drop pattern.
     parts = re.split(r"(?m)^(#{2,3} .*)$", text)
     kept = [parts[0]]
+    dropped: list[str] = []
     for heading, body in zip(parts[1::2], parts[2::2]):
-        if any(d in heading for d in drop_headings):
+        if any(re.search(p, heading) for p in drop_patterns):
+            dropped.append(heading.strip())
             continue
         kept.append(heading + body)
     out = "".join(kept)
     out = _META_LINE.sub("", out)
     out = re.sub(r"\n{3,}", "\n\n", out)
-    return out.strip()
+    return out.strip(), dropped
 
 
 def _sha1(s: str) -> str:
@@ -539,7 +557,7 @@ def main(argv=None):
     args = parse_args(argv)
 
     card_raw = open(args.card).read()
-    card_text = render_card(card_raw)
+    card_text, dropped_headings = render_card(card_raw)
     system_prompt = build_system_prompt(card_text, args.mode)
     meta = {
         "arm": args.arm,
@@ -551,7 +569,9 @@ def main(argv=None):
         "mode": args.mode,
         "rendered_prompt_sha1": _sha1(system_prompt),
         "rendered_prompt_chars": len(system_prompt),
-        "dropped_headings": list(DROP_HEADINGS_DEFAULT),
+        "drop_patterns": list(DROP_SECTION_PATTERNS_DEFAULT),
+        "dropped_headings": dropped_headings,
+        "kept_headings": re.findall(r"(?m)^#{2,3} .*$", card_text),
     }
 
     if args.dump_prompt:
