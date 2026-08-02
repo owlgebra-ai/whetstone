@@ -1,6 +1,6 @@
 # P3a — Register bake-off: symbolic (A) vs telegraphic/caveman (B)
 
-STATUS: ready
+STATUS: done (activity 004) — verdict: ARM A (symbolic); awaiting user ratification of the card
 MACHINES: turing (compression generation, entropy pass); spark (Δlogp + scoring passes — vLLM venv, `VLLM_USE_FLASHINFER_SAMPLER=0`)
 DEPENDS ON: P2 (done — uses its audit rollouts and scripts); both candidate cards at HEAD
 BLOCKS: P3 Part 2 (the seed register corpus is built with the winning card). P3 Part 1 (seed harvest) is card-independent and may run in parallel with this packet.

@@ -1,0 +1,128 @@
+{
+ "verbose": {
+  "n": 50,
+  "median": 5404.5,
+  "p25": 2771.0,
+  "p75": 7846.5,
+  "mean": 5881.44,
+  "min": 491.0,
+  "max": 15452.0,
+  "source": "/data/whetstone/runs/register_bakeoff/subset.jsonl"
+ },
+ "arms": {
+  "A": {
+   "path": "/data/whetstone/runs/register_bakeoff/final_A.jsonl",
+   "n": 50,
+   "card_path": "configs/register_card.md",
+   "card_git_sha": "7e0923b25d04ec197e790bc8e08daa55e840e307",
+   "rendered_prompt_sha1": "c5f162ec6298e47b110df7cad5700f1f6ea59c42",
+   "rendered_prompt_chars": 7967,
+   "verify_pass": 50,
+   "gate_fail": [],
+   "think_tokens": {
+    "n": 50,
+    "median": 176.5,
+    "p25": 121.75,
+    "p75": 477.0,
+    "mean": 432.48,
+    "min": 10.0,
+    "max": 2049.0
+   },
+   "answer_tokens": {
+    "n": 50,
+    "median": 723.5,
+    "p25": 363.25,
+    "p75": 877.25,
+    "mean": 664.04,
+    "min": 190.0,
+    "max": 1391.0
+   },
+   "compression_ratio": {
+    "n": 50,
+    "median": 0.043300742128051684,
+    "p25": 0.03491165702206832,
+    "p75": 0.10659415588813913,
+    "mean": 0.09233253415678465,
+    "min": 0.0008262414277451872,
+    "max": 0.7433756805807622
+   },
+   "frac_under_B_target": 0.8,
+   "markers_per_100_think_tokens": {
+    "n": 50,
+    "median": 3.684448462929476,
+    "p25": 2.063673168936327,
+    "p75": 5.515540641013909,
+    "mean": 4.300630565766323,
+    "min": 0.0,
+    "max": 18.701171875
+   },
+   "stalled_chunk_rate": {
+    "n": 50,
+    "median": 0.0,
+    "p25": 0.0,
+    "p75": 0.0,
+    "mean": 0.0,
+    "min": 0.0,
+    "max": 0.0
+   },
+   "frac_traces_mostly_stalled": 0.0
+  },
+  "B": {
+   "path": "/data/whetstone/runs/register_bakeoff/final_B.jsonl",
+   "n": 50,
+   "card_path": "configs/register_card_caveman.md",
+   "card_git_sha": "53ae708feff7cdf2790473c63cf4cc7da2353b05",
+   "rendered_prompt_sha1": "739b2e095e2bb1caa4e860eb17a881acdaaa7275",
+   "rendered_prompt_chars": 3923,
+   "verify_pass": 50,
+   "gate_fail": [],
+   "think_tokens": {
+    "n": 50,
+    "median": 376.5,
+    "p25": 142.75,
+    "p75": 593.75,
+    "mean": 396.58,
+    "min": 10.0,
+    "max": 1048.0
+   },
+   "answer_tokens": {
+    "n": 50,
+    "median": 723.5,
+    "p25": 363.25,
+    "p75": 877.25,
+    "mean": 664.04,
+    "min": 190.0,
+    "max": 1391.0
+   },
+   "compression_ratio": {
+    "n": 50,
+    "median": 0.07668576626085391,
+    "p25": 0.05959316008660842,
+    "p75": 0.10627704218157462,
+    "mean": 0.07982922275410091,
+    "min": 0.0008203445447087777,
+    "max": 0.16552609067579127
+   },
+   "frac_under_B_target": 0.76,
+   "markers_per_100_think_tokens": {
+    "n": 50,
+    "median": 0.23513483642793986,
+    "p25": 0.0,
+    "p75": 1.1584715994727914,
+    "mean": 1.2774075992625098,
+    "min": 0.0,
+    "max": 7.042253521126761
+   },
+   "stalled_chunk_rate": {
+    "n": 50,
+    "median": 0.0,
+    "p25": 0.0,
+    "p75": 0.0,
+    "mean": 0.0,
+    "min": 0.0,
+    "max": 0.0
+   },
+   "frac_traces_mostly_stalled": 0.0
+  }
+ }
+}

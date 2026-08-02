@@ -1,6 +1,6 @@
 # P3 — Seed harvest + seed register corpus
 
-STATUS: blocked — Part 2 needs the ratified card (P3a bake-off verdict + user sign-off decides between configs/register_card.md (A), register_card_caveman.md (B), or a hybrid). Part 1 (seed harvest) is card-independent: runnable NOW, in parallel with P3a.
+STATUS: blocked — Part 2 needs the ratified card. **P3a is done (activity 004): the verdict is ARM A, `configs/register_card.md`**, subject to two required card edits and user sign-off. Part 1 (seed harvest) is card-independent: runnable NOW.
 MACHINES: turing (all generation); spark for Δlogp scoring pass — NB spark now has TWO venvs (activity 002): `~/git/whetstone/.venv` (CPU-only, data work) and `~/workspace/whetstone-scorer/.venv` (vLLM). The Δlogp pass needs the vLLM one.
 DEPENDS ON: P0, P1, P2 (parser + probe + card)
 BLOCKS: P4 (needs the seed register corpus), Stage A (teacher conditioning corpus)
@@ -35,7 +35,7 @@ Log yield **per level band**. Reference numbers now exist (activity 003 probe, s
 - **Prompt scaffold:** use P3a's pinned neutral scaffold (`--card <ratified card>` — the card is the only register authority in the prompt; the v1 hardcoded SYSTEM_PROMPT is retired, see P3a "Pinned compression prompt"). The card text is versioned config — record its git sha and the rendered-prompt sha in the output header. `enable_thinking=False` on the compressor call is deliberate (prefill-trick rewrite, the one standing-rule exception).
 - **Input:** the verified seed traces (think segments only — the answer segment is copied through *untouched*; compression must never touch post-`</think>` text).
 - **Sampling:** T ∈ [0.3, 0.5] (design wants mild register-internal variance — use 0.4), single completion per trace.
-- **Chunkwise invariant (v1 §3.4):** at depth k the model sees ORIGINAL chunks 1..k + COMPACT chunks 1..k−1 and emits only COMPACT chunk k. Depth-batch across problems for throughput. Verify on 3 hand-inspected examples that chunk alignment survives the Qwen3 template before the bulk run.
+- **USE `--mode oneshot` (activity 004).** v1's chunkwise prefill loop (§3.4) is a repetition attractor on Qwen3-1.7B — 54% of traces ≥50% stalled, register-marker density 10× lower. One-shot (whole think segment in, whole compact rewrite out) reproduces the card's exemplar style directly. `--mode chunkwise` survives by flag for v1 comparison only; do not use it to build the corpus.
 - **Δlogp gate** (`scripts/perplexity_score.py`, v1 §3.6 — its only remaining use in v2):
   `delta = log P(a* | q, compact) − log P(a* | q)` under frozen Qwen3-1.7B; keep traces with delta above the v1 threshold. Run this scoring pass on **spark** (prefill-only — exactly what the GB10 is for) while turing moves on. Spark rules from activity 001: `source .venv/bin/activate`, `VLLM_USE_FLASHINFER_SAMPLER=0`, and if using the served scorer instead of in-process, it's **port 8100** (8000 is llama-swap — don't touch).
 - **Target:** 300–1,000 accepted traces spanning all level bands. If acceptance is too low, loosen chunk size before touching the Δlogp threshold; if the register itself is the problem (systematically failing on one problem type), that's register-card feedback for the user, not a threshold problem — report it.
