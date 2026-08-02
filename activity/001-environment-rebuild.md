@@ -205,7 +205,16 @@ VLLM_USE_FLASHINFER_SAMPLER=0 vllm serve Qwen/Qwen3-1.7B \
    Extend warmup if scorer latency matters.
 4. **Port 8000 on spark is taken** by `llama-swap`. Use 8100. Do not kill llama-swap.
 5. **9.8 GB is still reclaimable on turing** at `~/workspace/whetstone-v1-leftover` — needs
-   `sudo rm -rf` because of the root-owned `.venv`.
+   `sudo rm -rf` because of the root-owned `.venv`. Deliberately left in place (user
+   decision, 2026-08-01); reclaim with
+   `sudo rm -rf ~/workspace/whetstone-v1-leftover` when convenient.
+6. **turing's checkout is behind the Mac.** The two commits below are **local to the Mac —
+   not pushed** (user decision, 2026-08-01). turing's clone sits at `6191564` with the new
+   `pyproject.toml` and `scripts/smoke_qwen3_thinking.py` **hand-copied in via scp**, so its
+   working tree is dirty relative to its own HEAD. Before P1 does anything, either
+   `git push origin main` from the Mac and `git pull` on turing, or re-scp — do not assume
+   turing has the committed state. (`scripts/smoke_scorer_logprobs.py` lives only on spark
+   at `~/workspace/whetstone-scorer/scripts/` and on the Mac; it was never copied to turing.)
 
 ## Commits
 
