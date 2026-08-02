@@ -69,13 +69,19 @@ Rules:
 - If the original contains self-correction ("wait", "actually", "no"),
   preserve the correction and its resolution in register form.
 - One to a few lines per chunk; follow the card's step-marker convention.
-- Rewrite ONLY the LAST ORIGINAL CHUNK shown. The earlier original and compact
+{mode_rule}
+REGISTER CARD:
+{card}"""
+
+# Chunkwise only. Without it the cumulative-context loop is a repetition
+# attractor: the model locks onto one whole-problem summary and re-emits it at
+# every subsequent depth (activity 004). Meaningless in one-shot mode, where
+# there are no chunks — hence mode-selected rather than always present.
+CHUNK_RULE = """- Rewrite ONLY the LAST ORIGINAL CHUNK shown. The earlier original and compact
   chunks are context: do not restate, re-derive or re-summarize what an earlier
   COMPACT CHUNK already covers, and continue its step numbering rather than
   restarting at 1.
-
-REGISTER CARD:
-{card}"""
+"""
 
 # Card sections that are *not* register spec and must not reach the compressor.
 # Dropping them is what keeps the two prompts differing only in notation:
@@ -131,8 +137,9 @@ def _git_sha(path: str) -> str:
         return ""
 
 
-def build_system_prompt(card_text: str) -> str:
-    return SCAFFOLD.format(card=card_text)
+def build_system_prompt(card_text: str, mode: str = "oneshot") -> str:
+    return SCAFFOLD.format(card=card_text,
+                           mode_rule=CHUNK_RULE if mode == "chunkwise" else "")
 
 
 # ---------------------------------------------------------------------------
@@ -407,7 +414,7 @@ def main(argv=None):
 
     card_raw = open(args.card).read()
     card_text = render_card(card_raw)
-    system_prompt = build_system_prompt(card_text)
+    system_prompt = build_system_prompt(card_text, args.mode)
     meta = {
         "arm": args.arm,
         "card_path": args.card,
@@ -415,6 +422,7 @@ def main(argv=None):
         "card_raw_sha1": _sha1(card_raw),
         "card_rendered_sha1": _sha1(card_text),
         "scaffold_sha1": _sha1(SCAFFOLD),
+        "mode": args.mode,
         "rendered_prompt_sha1": _sha1(system_prompt),
         "rendered_prompt_chars": len(system_prompt),
         "dropped_headings": list(DROP_HEADINGS_DEFAULT),
