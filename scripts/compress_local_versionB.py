@@ -51,9 +51,20 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from whetstone.runio import checkpoint, repair_tail, run_completions, scan_seen
+from whetstone.segments import (ENDOFTEXT_ID, IM_END_ID, IM_START_ID,
+                                THINK_CLOSE_ID, THINK_OPEN_ID)
 from whetstone.verify import verify_response
 
 MAX_CHUNK_TOKENS_DEFAULT = 800
+
+#: Ids that must never appear inside a *rendered card* (P3 gotcha 1). The
+#: literal think-tag strings encode as the REAL boundary tokens even in prose,
+#: so a card that spells them out injects a spurious <think> into every prompt
+#: it rides in — which would make the compressor's own output parse as a
+#: malformed rollout. Card §1.5 is deliberately worded around them; this check
+#: is what keeps it that way.
+BOUNDARY_IDS = frozenset({THINK_OPEN_ID, THINK_CLOSE_ID, ENDOFTEXT_ID})
 
 # --- the pinned neutral scaffold (packet P3a) ------------------------------
 # Byte-identical across arms. Anything that differs between two compression
@@ -140,6 +151,33 @@ def _git_sha(path: str) -> str:
 def build_system_prompt(card_text: str, mode: str = "oneshot") -> str:
     return SCAFFOLD.format(card=card_text,
                            mode_rule=CHUNK_RULE if mode == "chunkwise" else "")
+
+
+def assert_no_boundary_tokens(system_prompt: str, tokenizer) -> dict:
+    """Hard-fail if the scaffold+card encodes any structural boundary token.
+
+    Checked on the *system prompt* rather than the chat-templated prompt: the
+    template legitimately emits ``<|im_start|>``/``<|im_end|>`` at its own
+    structural positions, so those are only a defect when they come from text we
+    wrote. Everything here is text we wrote, so the budget is exactly zero
+    (P3 gotcha 1, card §1.6).
+    """
+    ids = tokenizer.encode(system_prompt, add_special_tokens=False)
+    hits: dict[int, int] = {}
+    for tid in ids:
+        if tid in BOUNDARY_IDS or tid in (IM_START_ID, IM_END_ID):
+            hits[tid] = hits.get(tid, 0) + 1
+    if hits:
+        names = {THINK_OPEN_ID: "<think>", THINK_CLOSE_ID: "</think>",
+                 ENDOFTEXT_ID: "<|endoftext|>", IM_START_ID: "<|im_start|>",
+                 IM_END_ID: "<|im_end|>"}
+        detail = ", ".join(f"{names.get(t, t)}({t})x{c}" for t, c in sorted(hits.items()))
+        raise SystemExit(
+            f"[compress] *** REFUSING TO RUN: rendered prompt injects boundary "
+            f"tokens: {detail}. The literal tag strings encode as the real "
+            f"boundary tokens even in prose — reword the card (see card §1.5/§1.6)."
+        )
+    return {"prompt_tokens": len(ids), "boundary_token_hits": 0}
 
 
 # ---------------------------------------------------------------------------
@@ -287,18 +325,8 @@ def build_prefill_prompt(tokenizer, system_prompt: str, problem: str,
 # output
 # ---------------------------------------------------------------------------
 
-def _scan_seen(output: str) -> set[tuple[str, int]]:
-    seen: set[tuple[str, int]] = set()
-    if not os.path.exists(output):
-        return seen
-    with open(output) as f:
-        for line in f:
-            try:
-                r = json.loads(line)
-                seen.add((r["_uid"], r.get("src_candidate_idx", 0)))
-            except json.JSONDecodeError:
-                continue
-    return seen
+def _scan_seen(output: str) -> set[tuple]:
+    return scan_seen(output, ("_uid", "src_candidate_idx"))
 
 
 def _build_record(p: dict, tokenizer, meta: dict) -> dict:
@@ -350,6 +378,95 @@ def _write_checkpoint(output: str, problems: list[dict], tokenizer, meta: dict) 
     return done
 
 
+def _run_oneshot_server(args, problems, tokenizer, system_prompt, meta) -> int:
+    """One-shot compression against a resident ``vllm serve``, appending as it goes.
+
+    The offline path below submits every problem in a single
+    ``llm.generate(prompts)`` call and only writes once it returns. At bake-off
+    scale (50 traces) that was fine; at seed-corpus scale it means hours of work
+    held in memory with a single point of failure and no partial result. Here
+    each rewrite is an independent request and each finished record is appended
+    and fsynced, so a kill costs at most the in-flight window.
+
+    Records are appended, so ``_write_checkpoint``'s rewrite-the-world strategy
+    is deliberately *not* used on this path — it would clobber the appended
+    file with whatever happened to be in memory.
+    """
+    import time
+
+    dropped = repair_tail(args.output)
+    if dropped:
+        print(f"[resume] repaired torn tail: dropped {dropped} B", flush=True)
+
+    os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
+    out_f = open(args.output, "a", buffering=1)
+    fail_f = open(f"{args.output}.failed.jsonl", "a", buffering=1)
+
+    bodies = [{
+        "model": args.model,
+        "prompt": build_oneshot_prompt(tokenizer, system_prompt, p["prompt"],
+                                       p["thinking_original"]),
+        "max_tokens": args.max_tokens_oneshot,
+        "temperature": args.temperature,
+        "top_p": args.top_p,
+        "n": 1,
+        "stream": False,
+        "seed": args.seed,
+    } for p in problems]
+
+    state = {"n": 0, "cap": 0, "fail": 0, "bad_verify": 0}
+    t0 = time.time()
+
+    def on_result(res) -> None:
+        p = problems[res.index]
+        if not res.ok:
+            state["fail"] += 1
+            fail_f.write(json.dumps({"_uid": p["uid"],
+                                     "src_candidate_idx": p["src_candidate_idx"],
+                                     "error": res.error}) + "\n")
+            return
+        p["compacts_per_chunk"] = [clean_oneshot(res.text) or "[empty]"]
+        state["cap"] += int(res.finish_reason == "length")
+        rec = _build_record(p, tokenizer, meta)
+        # P3 gotcha 3: the answer segment was copied through untouched, so a
+        # verify failure means the compressor leaked past the think boundary.
+        # Counted here and hard-failed in _finalize rather than silently kept.
+        state["bad_verify"] += int(not rec["verify_ok"])
+        out_f.write(json.dumps(rec) + "\n")
+        state["n"] += 1
+        if state["n"] % 25 == 0:
+            el = max(1e-9, time.time() - t0)
+            checkpoint(args.output, out_f, {
+                "output": args.output, "written_this_run": state["n"],
+                "queued_this_run": len(problems), "failed_this_run": state["fail"],
+                "cap_hits": state["cap"], "verify_fail": state["bad_verify"],
+                "elapsed_s": round(el, 1),
+                "per_min": round(60 * state["n"] / el, 2), "done": False,
+            })
+            print(f"[oneshot] {state['n']}/{len(problems)} "
+                  f"(cap-hit {state['cap']}, fail {state['fail']})", flush=True)
+
+    try:
+        run_completions(args.server, bodies, on_result=on_result,
+                        concurrency=args.concurrency,
+                        timeout_s=args.request_timeout)
+    finally:
+        checkpoint(args.output, out_f, {
+            "output": args.output, "written_this_run": state["n"],
+            "queued_this_run": len(problems), "failed_this_run": state["fail"],
+            "cap_hits": state["cap"], "verify_fail": state["bad_verify"],
+            "elapsed_s": round(time.time() - t0, 1), "done": True,
+        })
+        out_f.close()
+        fail_f.close()
+
+    meta["cap_hit_rate"] = state["cap"] / max(1, len(problems))
+    print(f"[oneshot] {state['n']} records, cap-hit {meta['cap_hit_rate']:.1%} "
+          f"at max_tokens={args.max_tokens_oneshot}, {state['fail']} failed",
+          flush=True)
+    return state["n"]
+
+
 def _finalize(args, meta: dict, n: int) -> None:
     """Answer-segment integrity (P3 gotcha 3) + provenance sidecar.
 
@@ -358,8 +475,10 @@ def _finalize(args, meta: dict, n: int) -> None:
     leaked past ``</think>`` — a hard bug, not a quality issue.
     """
     n_bad = 0
-    with open(args.output) as f:
+    n = 0                       # count the FILE, not this run: on a resume the
+    with open(args.output) as f:            # file also holds earlier records.
         for line in f:
+            n += 1
             if not json.loads(line)["verify_ok"]:
                 n_bad += 1
     meta["n_records"] = n
@@ -400,6 +519,13 @@ def parse_args(argv=None):
     ap.add_argument("--temperature", type=float, default=0.4)
     ap.add_argument("--top-p", type=float, default=0.95)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--server", default=None,
+                    help="Base URL of a running `vllm serve`, e.g. "
+                         "http://127.0.0.1:8000/v1 . oneshot mode only. Streams "
+                         "one request per trace and appends each finished record, "
+                         "instead of one all-or-nothing llm.generate() batch.")
+    ap.add_argument("--concurrency", type=int, default=64)
+    ap.add_argument("--request_timeout", type=int, default=1800)
     ap.add_argument("--limit", type=int, default=0, help="0 = all (debug aid)")
     ap.add_argument("--first-candidate-only", action="store_true")
     ap.add_argument("--checkpoint-every", type=int, default=3)
@@ -429,6 +555,12 @@ def main(argv=None):
     }
 
     if args.dump_prompt:
+        # Tokenizer-only, no GPU: this is the cheap pre-flight for P3 gotcha 1,
+        # runnable on any box before a run is launched.
+        from transformers import AutoTokenizer
+        meta.update(assert_no_boundary_tokens(
+            system_prompt, AutoTokenizer.from_pretrained(args.model,
+                                                         trust_remote_code=True)))
         os.makedirs(os.path.dirname(os.path.abspath(args.dump_prompt)), exist_ok=True)
         with open(args.dump_prompt, "w") as f:
             f.write(system_prompt)
@@ -440,14 +572,20 @@ def main(argv=None):
               "(v1 §3.3). P3/P3a specify T=0.4.", file=sys.stderr)
 
     from transformers import AutoTokenizer
-    from vllm import LLM, SamplingParams
 
     tokenizer = AutoTokenizer.from_pretrained(args.model, trust_remote_code=True)
+
+    # Refuse to run before any GPU work if the card injects boundary tokens.
+    meta.update(assert_no_boundary_tokens(system_prompt, tokenizer))
+
+    if args.server:
+        repair_tail(args.output)      # before _scan_seen reads it
     seen = _scan_seen(args.output)
     print(f"[resume] {len(seen)} problems already compressed", flush=True)
     print(f"[card] {args.card} blob={meta['card_git_sha'][:12]} "
           f"rendered_prompt_sha1={meta['rendered_prompt_sha1'][:12]} "
-          f"({meta['rendered_prompt_chars']} chars)", flush=True)
+          f"({meta['rendered_prompt_chars']} chars, {meta['prompt_tokens']} tokens, "
+          f"0 boundary tokens)", flush=True)
 
     problems: list[dict] = []
     with open(args.input) as f:
@@ -495,6 +633,17 @@ def main(argv=None):
             p["chunks"] = [p["thinking_original"]]
             p["n_chunks"] = 1
             p["compacts_per_chunk"] = [None]
+
+    if args.server:
+        if args.mode != "oneshot":
+            raise SystemExit("[compress] --server supports --mode oneshot only")
+        print(f"[compress] server mode: {args.server}, "
+              f"{args.concurrency} in flight", flush=True)
+        n = _run_oneshot_server(args, problems, tokenizer, system_prompt, meta)
+        _finalize(args, meta, n)
+        return
+
+    from vllm import LLM, SamplingParams
 
     llm = LLM(
         model=args.model,
