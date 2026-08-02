@@ -64,3 +64,28 @@ Only **P0–P4 are written in full detail**. P5–P7 are deliberately outlines: 
 - **Every vLLM invocation on spark needs `VLLM_USE_FLASHINFER_SAMPLER=0`** (GB10/sm_121 FlashInfer sampler JIT failure; the error message about sm75 is misleading). turing does not need it.
 - **`source .venv/bin/activate` before running anything that starts vLLM** — never bare `.venv/bin/python` (ninja must be on PATH or engine init dies with a buried FileNotFoundError).
 - **Sync checkouts before remote work:** turing's clone can lag the Mac (activity 001 gotcha 6 — Mac-local commits, scp'd stragglers). First step of any packet touching a remote box: push from the Mac, `git pull` + `git status` on the box, and reconcile stray files.
+
+## Facts pinned by activity 002 (P1) — binding on all later packets
+
+- Pool/eval artifacts live at `/data/whetstone/data/pool/` (train 29,998 / val 2,000), `/data/whetstone/data/sca_arm/`, `/data/whetstone/eval/` (7 suites + frozen `standard_eval_300`). Dataset revisions pinned in the `.meta.json` sidecars.
+- `_uid` / normalization / dedup / stratification live in **`whetstone/poolutil.py`** — use it, never reimplement.
+- **Level histogram is peaked at 5–8 and nearly empty at 2–3 and 10.** Anything "level-stratified" must stratify proportionally or merge bands — equal-count strata are impossible.
+- **The SCA arm overlaps the main pool by design** (only its three stages are mutually disjoint). Never describe it as held out.
+- `standard_eval_300` is frozen; the builder refuses to regenerate it. HumanEval records are self-marked `code-exec-pending` and cannot produce verifier numbers (grader is P8's).
+- `run_eval.py` still runs v1 defaults and lacks `enable_thinking=True` — **required fix owned by P2** before any eval numbers are quoted.
+- spark has two venvs: `~/git/whetstone/.venv` (CPU data work) and `~/workspace/whetstone-scorer/.venv` (vLLM scoring).
+
+## Facts pinned by activity 003 (P2) — binding on all later packets
+
+- **Segment tokens:** `<think>` = **151667**, `</think>` = **151668**, `<|im_end|>` = 151645 — each a single token inline (Qwen3-1.7B @ `70d244cc`). `enable_thinking=True` does **not** pre-fill `<think>`; the model emits it, so completions *start with* 151667. `whetstone/segments.py` is the only place masks are computed — never split the decoded string.
+- **SED runs in RESTORATION mode → Stage-B `Δ_max = 0.7`** (not 0.5). Think-segment median entropy 0.0278 nats vs **0.1163 for Qwen3-1.7B-Base on identical text** (4.2× lower); collapse mass 56.8%, fork mass 2.8%.
+- **The design's 80/20 fork structure does not hold for this checkpoint.** The second entropy mode sits at **≈0.7 nats, not >1.5**. Any component hard-coding a 1.5-nat fork threshold is using the wrong knife. **TEA's `τ_c = 1.0` sits above the real second mode** — P7 should add it to the run-1 sweep (currently β, H_pivot, λ_TEA).
+- **Median native think length = 6,099 tokens** (median answer 679). This is the baseline `G_budget`'s B_target of 600 is measured against, and the two lengths are always reported separately.
+- **No system prompt.** v1's "put your reasoning between `<think>` tags" system prompt causes **6% duplicated-`</think>` gate failures** and costs **8 points of accuracy** on Qwen3. `run_eval.py` and `harvest.py` now default to no system message; the v1 text survives as `SYS_PROMPT_V1` in both.
+- **`harvest.py --prefill_think` now defaults to False.** At its old default (True) it appended `<think>\n` to the prompt, which would have made every seed-harvest completion parse as `missing_think_open` — a 100% gate-out.
+- **Harvest/eval budget is 32,768 tokens.** Cap-hit 0.0% at 32k vs 10.0% at 16k. Do not lower it.
+- **`run_eval.py` defaults are now the §12.7 protocol:** N=8, T=0.7, top_p=0.95, max_tokens=32768, `enable_thinking=True`, `max_model_len` 36864.
+- **H_pivot is still unpinned.** P3 must re-run `scripts/entropy_audit.py --traces <seed_register.jsonl>` on the compact corpus. Native-trace think p80 = 0.6923 is *reference only*, not H_pivot.
+- **~2–4% of verifier yield is lost to extraction shape**, not reasoning (unit suffixes like `290 tomatoes` vs `290`; `$$…$$` display blocks extracting as `$$`). `verify.py` was deliberately **not** changed. P8 owns the decision; P3 should expect its yield ~3 pts under the P2 probe numbers for this reason alone.
+- **vLLM's `EngineCore` outlives its parent process** and can hold the whole GPU. If a vLLM start fails with "Engine core initialization failed", check `nvidia-smi --query-compute-apps=pid,used_memory` for an orphan and kill it **by PID** — `pkill -f "VLLM::EngineCore"` matches its own command line and kills the calling shell.
+- **`apply_chat_template(tokenize=True)` returns a `BatchEncoding` in transformers 5.x**, not a list — use `list(enc["input_ids"])`.

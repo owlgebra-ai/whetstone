@@ -34,15 +34,28 @@ def _uid_hash_mod(uid: str, n: int) -> int:
     return int(hashlib.md5(uid.encode("utf-8")).hexdigest(), 16) % n
 
 
+# v1's system prompt. RETAINED FOR REFERENCE ONLY — no longer the default; see
+# the note in _load_system_prompt and activity 003 Part 3.
+SYS_PROMPT_V1 = (
+    "Place all your step-by-step reasoning between <think> and </think> tags. "
+    "After </think>, give the final answer."
+)
+
+
 def _load_system_prompt(path: str | None) -> str:
-    default = (
-        "Place all your step-by-step reasoning between <think> and </think> tags. "
-        "After </think>, give the final answer."
-    )
+    """Read the system prompt from ``path``; **no system prompt** when unset.
+
+    v1 defaulted to :data:`SYS_PROMPT_V1`. The P2 calibration probe (activity
+    003) measured both on 100 rollouts each: with that prompt, format compliance
+    94% and 6 rollouts emitted a **duplicated** ``</think>``; without any system
+    message, 100% compliance and +8 points of accuracy. Qwen3 thinks natively —
+    naming the tags in the prompt is what makes it re-emit one. Pass
+    ``--system_prompt_file`` to supply one deliberately.
+    """
     if not path or not os.path.exists(path):
-        return default
+        return ""
     with open(path) as f:
-        return f.read().strip() or default
+        return f.read().strip()
 
 
 def _scan_seen(output: str) -> set[tuple[str, int]]:
@@ -61,16 +74,30 @@ def _scan_seen(output: str) -> set[tuple[str, int]]:
 
 
 def _build_prompt(tokenizer, sys_prompt: str, user_text: str,
-                  prefill_think: bool) -> str:
-    """Build the prompt via the tokenizer's chat template."""
-    messages = [
-        {"role": "system", "content": sys_prompt},
-        {"role": "user", "content": user_text},
-    ]
+                  prefill_think: bool, enable_thinking: bool = True) -> str:
+    """Build the prompt via the tokenizer's chat template.
+
+    ``enable_thinking`` is forwarded to the template (P2 fix; ROADMAP rule 4:
+    every hybrid-Qwen3 template call passes it — rollout, scoring and eval
+    alike). Templates that do not define the variable ignore it, so the script
+    stays model-agnostic.
+
+    ``prefill_think`` is a **Gemma-era** switch and now defaults to False. On
+    Qwen3 with ``enable_thinking=True`` the rendered prompt ends at the
+    assistant header and the model emits ``<think>`` itself; appending
+    ``<think>\\n`` here would move the opener into the prompt, so every
+    completion would parse as ``missing_think_open`` in
+    :mod:`whetstone.segments` unless callers also set
+    ``think_opened_by_prompt=True``. Leave it off for v2.
+    """
+    messages = [{"role": "user", "content": user_text}]
+    if sys_prompt:
+        messages.insert(0, {"role": "system", "content": sys_prompt})
     prompt = tokenizer.apply_chat_template(
         messages,
         tokenize=False,
         add_generation_prompt=True,
+        enable_thinking=enable_thinking,
     )
     if prefill_think and "<think>" not in prompt:
         prompt = prompt + "<think>\n"
@@ -110,10 +137,21 @@ def parse_args(argv=None):
     ap.add_argument("--batch", type=int, default=32)
     ap.add_argument("--system_prompt_file", default=None)
     ap.add_argument("--prefill_think", action="store_true",
-                    help="Append '<think>\\n' to the chat-template prompt "
-                         "if the template does not already include it.")
+                    help="Append '<think>\\n' to the chat-template prompt if the "
+                         "template does not already include it. Gemma-era switch; "
+                         "OFF by default for v2 — on Qwen3 it moves the <think> "
+                         "opener into the prompt and every completion then parses "
+                         "as missing_think_open.")
     ap.add_argument("--no_prefill_think", dest="prefill_think", action="store_false")
-    ap.set_defaults(prefill_think=True)
+    ap.set_defaults(prefill_think=False)
+    ap.add_argument("--enable_thinking", action="store_true")
+    ap.add_argument("--no_enable_thinking", dest="enable_thinking",
+                    action="store_false",
+                    help="Hybrid-Qwen3 templates only; leave ON (ROADMAP rule 4).")
+    ap.set_defaults(enable_thinking=True)
+    ap.add_argument("--no_system_prompt", action="store_true",
+                    help="Send no system message at all (Qwen3 needs no <think> "
+                         "instruction — it thinks natively).")
     ap.add_argument("--seed", type=int, default=None)
     ap.add_argument(
         "--data_root",
@@ -134,7 +172,7 @@ def main(argv=None):
     seen = _scan_seen(args.output)
     print(f"[resume] {len(seen)} (uid, k) pairs already done", flush=True)
 
-    sys_prompt = _load_system_prompt(args.system_prompt_file)
+    sys_prompt = "" if args.no_system_prompt else _load_system_prompt(args.system_prompt_file)
 
     problems: list[dict] = []
     with open(args.input) as f:
@@ -189,7 +227,8 @@ def main(argv=None):
 
     for i in range(0, len(problems), batch):
         chunk = problems[i : i + batch]
-        prompts = [_build_prompt(tokenizer, sys_prompt, p["prompt"], args.prefill_think)
+        prompts = [_build_prompt(tokenizer, sys_prompt, p["prompt"],
+                                 args.prefill_think, args.enable_thinking)
                    for p in chunk]
         outs = llm.generate(prompts, sp)
         for p, out in zip(chunk, outs):

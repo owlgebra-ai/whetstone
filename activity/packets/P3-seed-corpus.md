@@ -1,7 +1,7 @@
 # P3 — Seed harvest + seed register corpus
 
 STATUS: blocked (register card — user input via P2 Part 4)
-MACHINES: turing (all generation); spark for Δlogp scoring pass
+MACHINES: turing (all generation); spark for Δlogp scoring pass — NB spark now has TWO venvs (activity 002): `~/git/whetstone/.venv` (CPU-only, data work) and `~/workspace/whetstone-scorer/.venv` (vLLM). The Δlogp pass needs the vLLM one.
 DEPENDS ON: P0, P1, P2 (parser + probe + card)
 BLOCKS: P4 (needs the seed register corpus), Stage A (teacher conditioning corpus)
 DELIVERABLES: verified seed harvest, seed register corpus (~300–1,000 traces), Δlogp-gated, H_pivot pinned from the compact-register entropy histogram.
@@ -14,7 +14,7 @@ Build the only two corpora that exist before the teacher is trained (design §1,
 
 Adapt `scripts/harvest.py` for Qwen3 and run:
 
-- **Subset:** 15% of the train pool (~4,500 problems), stratified by level, fixed seed — write the subset's `_uid` list to `/data/whetstone/corpora/seed/subset_uids.json` first (resume invariance: the subset is defined once, by file, not re-sampled).
+- **Subset:** 15% of the train pool (~4,500 problems), stratified by level (*proportionally* — levels 2–3 and 10 are nearly empty, activity 002 note 1; use `whetstone/poolutil.py`), fixed seed — write the subset's `_uid` list to `/data/whetstone/corpora/seed/subset_uids.json` first (resume invariance: the subset is defined once, by file, not re-sampled).
 - **Sampling:** K=2, T=0.9, top-p 0.95, `enable_thinking=True`, max_tokens 32768, `max_model_len 34816`.
 - **Blindness is non-negotiable** (v1 §2): no gold in the prompt, no few-shot, no register mention. The harvest prompt is the *same unprivileged eval-style prompt* the student will see forever.
 - Single worker on turing (`--worker_id 0 --n_workers 1`), `gpu_mem 0.90`. Keep the v1 per-line JSONL append + resume-by-`_uid` machinery — a 4-hour run WILL be interrupted at least once; test resume by killing it once on purpose after ~100 problems and restarting (yes, really — log that you did this).

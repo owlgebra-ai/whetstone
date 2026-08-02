@@ -1,6 +1,6 @@
 # P2 — Preconditions: segment parser on Qwen3, entropy audit, calibration probe, register card
 
-STATUS: ready
+STATUS: done (activity 003)
 MACHINES: turing (GPU forward passes + generation); parser unit tests anywhere
 DEPENDS ON: P0; Parts 2–3 also need P1 (pool)
 BLOCKS: P3, P4
@@ -30,7 +30,7 @@ Steps:
 
 Design §12.3: HF forward pass over ~200 stratified pool problems, **top-512 entropy per token**, output histogram + verdict. This runs on the model's own rollouts:
 
-1. Sample 1 rollout per problem for 200 level-stratified problems from `val_2k.jsonl` (vLLM, T=0.9, top-p 0.95, max 16k think budget is enough for the audit, `enable_thinking=True`).
+1. Sample 1 rollout per problem for 200 level-stratified problems from `val_2k.jsonl` (vLLM, T=0.9, top-p 0.95, max 16k think budget is enough for the audit, `enable_thinking=True`). **Stratification caveat (activity 002 note 1):** the level histogram is peaked at 5–8 and nearly empty at 2–3 and 10 — use *proportional* stratification (`whetstone/poolutil.py` has the machinery); do not attempt equal counts per level.
 2. Teacher-force each (prompt, rollout) through HF `Qwen/Qwen3-1.7B` (bf16, sdpa, `torch.no_grad`), and per position compute entropy of the top-512 logits (softmax over the top-512 only, per CurioSFT's convention).
 3. Aggregate: overall histogram; **think vs answer segments separately** (use the Part-1 parser); per-level medians; fraction of tokens under 0.1 nats (collapse mass) and over 1.5 nats (fork mass — the design expects a usable bimodal 80/20 structure).
 4. Emit `/data/whetstone/runs/entropy_audit/audit.json` + histogram PNGs (copy PNGs to `activity/assets/NNN/`), and print a **verdict**: preservation mode (healthy bimodal, median comparable to a base model) vs **restoration mode** (arrives collapsed → Stage-B `Δ_max` 0.7 instead of 0.5). There is no absolute published threshold — report the numbers and argue the verdict in the activity file; the Δ_max choice is revisited at Stage B anyway.
@@ -44,7 +44,9 @@ Design §12.3: HF forward pass over ~200 stratified pool problems, **top-512 ent
 
 ## Part 3 — Calibration probe (v1 Step-2.1, unchanged)
 
-Read `trashed/WHETSTONE_PROCEDURE.md` Step 2.1 and execute it against Qwen3-1.7B exactly as written (it validates prompt/template/sampling/extraction yield on a small subset before any bulk generation). The design explicitly keeps this probe unchanged (design §1 precondition 3). Record: extraction-success rate, verifier yield on the probe subset, and any template fix it forced. If `run_eval.py` or `harvest.py` carry Gemma-era hardcoded prompt scaffolding, fix it here (this is the natural place — the probe is what catches it) and note the diff.
+Read `trashed/WHETSTONE_PROCEDURE.md` Step 2.1 and execute it against Qwen3-1.7B exactly as written (it validates prompt/template/sampling/extraction yield on a small subset before any bulk generation). The design explicitly keeps this probe unchanged (design §1 precondition 3). Record: extraction-success rate, verifier yield on the probe subset, and any template fix it forced.
+
+**Required fix, handed forward by P1 (activity 002 note 4):** `run_eval.py`'s `_build_prompt()` already uses `apply_chat_template` (no Gemma scaffolding — verified), but it does **not** pass `enable_thinking=True`, and its defaults are v1's (`K=1, T=0.0, max_tokens=12288`). Fix both here: `enable_thinking=True` on every template call, and design-§12.7 defaults (`N=8, T=0.7, top_p=0.95, max_tokens=32768`) with the old cheap settings still reachable via flags (the probe and dashboards want cheap runs). Same `enable_thinking` check applies to `harvest.py` before P3 uses it.
 
 ## Part 4 — Register card (USER deliverable — stage it, don't write it)
 

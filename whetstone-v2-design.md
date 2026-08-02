@@ -266,8 +266,8 @@ All scorer quantities come from **one teacher-forced vLLM prefill pass** per bat
 | G_budget μ / B_0 / B_target / s_min | 1 / median seed-compact length / 600 / 40 tok | v1 552-token sweet spot; freeze rule §3.2 |
 | Teacher GRPO group / T | 8 / 0.9 | v1 / Pedagogical RL |
 | ZPD κ / γ / α_nov / s_cap | 1 / from histogram (init log 1e-4) / 0.5 / 4 nats | Pedagogical RL assimilation; §4.1 |
-| SED α_sed / Δ_max / H_pivot / EMA / τ̂ range / top-k | 1 / 0.5 (0.7 restoration) / 80th pct audit / (5, 0.99) / [1.1, 1.5] / 512 | CurioSFT |
-| TEA (τ_c, λ_TEA, c) | (1.0, 0.05, 100) | Light-IF |
+| SED α_sed / Δ_max / H_pivot / EMA / τ̂ range / top-k | 1 / **0.7 — restoration mode, PINNED by activity 003** / 80th pct audit (**still unpinned** — needs the P3 compact corpus) / (5, 0.99) / [1.1, 1.5] / 512 | CurioSFT |
+| TEA (τ_c, λ_TEA, c) | (1.0, 0.05, 100) — ⚠ activity 003: this checkpoint's second entropy mode is at **≈0.7 nats**, *below* τ_c = 1.0. Sweep τ_c in run 1. | Light-IF |
 | DAPO clip / LR / group | 0.2, 0.28 / 1e-6 / 8 | v1 §7.3 |
 | Answer band f / λ_align | 32 / 0.1* | SCA (f); *λ_align set on 1.7B run |
 | Difficulty amplification α | 0.5 | SCA |

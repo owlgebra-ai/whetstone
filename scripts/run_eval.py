@@ -26,7 +26,14 @@ import sys
 import time
 from pathlib import Path
 
-SYS_PROMPT = (
+# v1's system prompt. RETAINED FOR REFERENCE ONLY — it is no longer the default.
+# The P2 calibration probe (activity 003) measured it against no system prompt at
+# all on 100 rollouts each: with it, format compliance 94% and 6 rollouts emitted
+# a DUPLICATED </think>; without it, 100% compliance, zero structural failures,
+# and +8 points of accuracy. Qwen3 thinks natively and does not need to be told
+# about the tags — naming them in the prompt is what makes it re-emit one.
+# Pass --system_prompt "<text>" to restore a system message.
+SYS_PROMPT_V1 = (
     "Place all your step-by-step reasoning between <think> and </think> tags. "
     "After </think>, give the final answer."
 )
@@ -40,13 +47,26 @@ def _read_suite(path: str) -> list[dict]:
     return rows
 
 
-def _build_prompt(tokenizer, sys_prompt: str, user_text: str) -> str:
-    messages = [
-        {"role": "system", "content": sys_prompt},
-        {"role": "user", "content": user_text},
-    ]
+def _build_prompt(tokenizer, sys_prompt: str, user_text: str,
+                  enable_thinking: bool = True) -> str:
+    """Render the eval prompt through the tokenizer's chat template.
+
+    P2 fix (handed forward by P1 / activity 002 note 4): ``enable_thinking``
+    must be passed on **every** hybrid-Qwen3 template call — rollout, scoring
+    and eval alike (ROADMAP rule 4). Without it the flag defaults to the
+    template's own default; on Qwen3-1.7B that happens to be thinking-on today,
+    but relying on a template default is exactly how an eval silently starts
+    measuring a non-thinking model.
+
+    An empty ``sys_prompt`` sends no system message at all — Qwen3 thinks
+    natively and needs no ``<think>`` instruction.
+    """
+    messages = [{"role": "user", "content": user_text}]
+    if sys_prompt:
+        messages.insert(0, {"role": "system", "content": sys_prompt})
     return tokenizer.apply_chat_template(
         messages, tokenize=False, add_generation_prompt=True,
+        enable_thinking=enable_thinking,
     )
 
 
@@ -103,7 +123,9 @@ def _eval_suite(suite_path: str, tokenizer, llm, args) -> dict:
         seed=args.seed,
     )
 
-    prompts = [_build_prompt(tokenizer, args.system_prompt, r["prompt"]) for r in rows]
+    sys_prompt = "" if args.no_system_prompt else args.system_prompt
+    prompts = [_build_prompt(tokenizer, sys_prompt, r["prompt"], args.enable_thinking)
+               for r in rows]
     t0 = time.time()
     outs = llm.generate(prompts, sp)
     dur = time.time() - t0
@@ -149,6 +171,10 @@ def _eval_suite(suite_path: str, tokenizer, llm, args) -> dict:
         "n_problems": n_total,
         "K": args.K,
         "temperature": args.temperature,
+        "top_p": args.top_p,
+        "max_tokens": args.max_tokens,
+        "enable_thinking": args.enable_thinking,
+        "system_prompt": sys_prompt,
         "wall_seconds": round(dur, 1),
         "n_tokens_total": n_tokens_total,
         "strict_accuracy_at1": (n_correct_at1 / n_total) if n_total and not is_lean else None,
@@ -173,12 +199,26 @@ def parse_args(argv=None):
     ap.add_argument("--suite_dir", default=None,
                     help="Directory containing <suite>.jsonl files")
     ap.add_argument("--output_dir", required=True)
-    ap.add_argument("--system_prompt", default=SYS_PROMPT)
-    ap.add_argument("--K", type=int, default=1, help="Samples per problem (pass@K)")
-    ap.add_argument("--temperature", type=float, default=0.0)
+    ap.add_argument("--system_prompt", default="",
+                    help="Empty by default — see SYS_PROMPT_V1 above; the P2 probe "
+                         "showed v1's system prompt costs compliance and accuracy "
+                         "on Qwen3.")
+    # Defaults are the SCA-matched protocol (design §12.7): N=8, T=0.7,
+    # top_p=0.95, 32k max new tokens. The old v1 settings (K=1, T=0.0,
+    # max_tokens=12288) stay reachable as flags — the calibration probe and the
+    # per-checkpoint continuity dashboard both want a cheap run.
+    ap.add_argument("--K", type=int, default=8, help="Samples per problem (pass@K)")
+    ap.add_argument("--temperature", type=float, default=0.7)
     ap.add_argument("--top_p", type=float, default=0.95)
-    ap.add_argument("--max_tokens", type=int, default=12288)
-    ap.add_argument("--max_model_len", type=int, default=32768)
+    ap.add_argument("--max_tokens", type=int, default=32768)
+    ap.add_argument("--max_model_len", type=int, default=36864)
+    ap.add_argument("--enable_thinking", action="store_true")
+    ap.add_argument("--no_enable_thinking", dest="enable_thinking",
+                    action="store_false",
+                    help="Hybrid-Qwen3 templates only; leave ON (ROADMAP rule 4).")
+    ap.set_defaults(enable_thinking=True)
+    ap.add_argument("--no_system_prompt", action="store_true",
+                    help="Send no system message (Qwen3 thinks natively).")
     ap.add_argument("--tp", type=int, default=1)
     ap.add_argument("--gpu_mem", type=float, default=0.90)
     ap.add_argument("--seed", type=int, default=0)

@@ -22,6 +22,9 @@ dependencies = [
     # It must be importable AND on PATH — activate the venv, do not call
     # .venv/bin/python directly (see activity 001, gotcha 1).
     "ninja>=1.13",
+    # Dashboards are first-class stage deliverables (design §7), not an
+    # afterthought — the plotting dep is core, not an extra.
+    "matplotlib>=3.9",
     # Audit / cloud API (compression spot-check).
     "anthropic>=0.40",
     # CLI helpers.
