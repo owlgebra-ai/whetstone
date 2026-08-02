@@ -19,6 +19,16 @@ speculative decoding with `google/gemma-4-E4B-it-assistant` as the draft.
 Resume-safe: append-only output, scans existing (uid, k) pairs on startup.
 Multi-worker safe: workers slice the pool by _uid hash mod n_workers, each
 writing to its own output file. Never have N workers append to a shared file.
+
+Output records carry, besides the completion text:
+  * `level` / `source`, passed through from the input pool so yield tables are
+    a groupby on this file (packet P3 Part 1) with no join back;
+  * `completion_token_ids` — vLLM's own ids. Every consumer of a harvest file
+    routes by <think> boundaries, and `whetstone.segments` is deliberately
+    token-level: re-tokenizing the decoded text does not round-trip at the
+    boundary (design §12.1). Re-deriving ids later is not equivalent, so they
+    are stored, not recomputed;
+  * `finish_reason` — distinguishes a cap-hit (`length`) from a clean stop.
 """
 
 from __future__ import annotations
@@ -186,7 +196,11 @@ def main(argv=None):
             for k in range(args.K):
                 if (uid, k) in seen:
                     continue
-                problems.append({"uid": uid, "k": k, "prompt": prompt, "gold": gold})
+                # level/source ride along so downstream yield tables are a
+                # groupby on the harvest file itself, with no join back to the
+                # pool (packet P3: "Log yield per level band").
+                problems.append({"uid": uid, "k": k, "prompt": prompt, "gold": gold,
+                                 "level": r.get("level"), "source": r.get("source")})
 
     if not problems:
         print("[harvest] nothing to do", flush=True)
@@ -243,8 +257,12 @@ def main(argv=None):
                 "candidate_idx": p["k"],
                 "prompt": p["prompt"],
                 "ground_truth": p["gold"],
+                "level": p["level"],
+                "source": p["source"],
                 "completion": text,
+                "completion_token_ids": list(out.outputs[0].token_ids),
                 "n_tokens": len(out.outputs[0].token_ids),
+                "finish_reason": out.outputs[0].finish_reason,
                 "model": model_name,
                 "temperature": args.temperature,
                 "top_p": args.top_p,
