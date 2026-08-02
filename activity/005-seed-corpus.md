@@ -252,6 +252,87 @@ downstream text-processing rule that keyed on its old shape stopped working
 silently."** Neither produced an error. Worth treating as a standing hazard for
 every future card edit.
 
+### 6. The letter-tag ban worked — runaways are gone
+
+Bake-off arm A had a **10% runaway rate** (cap-hit at `max_tokens_oneshot=2048`),
+traced to card §1.3's `(A)`, `(B)`, … sub-result naming: the model exhausted
+single letters and rolled into `AAA`/`BBB` loops. Ratification banned the
+scheme. On the 20-trace dry run: **cap-hit 0.0%**, stalled-chunk rate 0.00, 0%
+of traces ≥50% stalled. Activity 004's required edit 1 is confirmed effective.
+
+### 7. Register adoption is lower than the bake-off — under investigation
+
+Measured with the bake-off's own metric code (`bakeoff_metrics.py`, so the
+numbers are directly comparable to activity 004):
+
+| | bake-off arm A (T=0.4) | P3 dry run (n=20) |
+|---|---|---|
+| verbose think tokens, median | 5,404 | 8,796 |
+| compact think tokens, median | 176 | 209 |
+| compression ratio, median | 0.043 | **0.025** |
+| % under `B_target = 600` | 80% | **95%** |
+| **markers /100 think tok** | **4.74** | **2.16** |
+| cap-hit (runaway) | 10% | **0%** |
+| `verify_response` | 50/50 | 20/20 |
+
+Per-marker, over 20 traces: `goal:` in 19, `let ` in 16, `⇒` in 18 — the
+*structural* register is installed. What is thin is the **verification and
+case-split vocabulary**: `chk:` in 2/20, `✓` in 2/20, `case ` in 0/20, `✗` in
+0/20. Step bodies also carry more English connective prose ("Since x₁ is real
+and between 1 and 2", "Therefore …") than the card's exemplars do.
+
+Two candidate causes, and they are separable:
+
+1. **Input distribution.** These traces are 8,796 verbose tokens at the median
+   against the bake-off's 5,404 (a 32k cap vs 16k), and they compress 1.7×
+   harder (0.025 vs 0.043). Harder summarization of longer input plausibly
+   produces prose-ier step bodies.
+2. **The card itself changed.** Ratification added exemplars 3–5, and those
+   have measurably lower marker density than the two the bake-off card carried:
+
+   | exemplars | markers / 100 chars |
+   |---|---|
+   | 1–2 (bake-off card) | **5.67** |
+   | 3–5 (added at ratification) | **4.14** |
+
+   Exemplar 5 alone is 2.44 — close to what the model now produces.
+
+A controlled run is in flight: **the bake-off's own 50-trace subset,
+recompressed with the ratified card**. Same inputs, different card, so it
+isolates cause 2 from cause 1.
+
+**This does not put the bake-off verdict in doubt** — 2.16 is still ~9× arm B's
+0.24, and the register is plainly installed. It is reported as **register-card
+feedback for the user** (which packet P3 Part 2 asks for explicitly), not as a
+threshold to nudge, and the corpus build proceeds either way.
+
+---
+
+## Runbook for the rest of the packet
+
+Executed in this order once the harvest lands. Steps 6–9 move to **spark**:
+they are teacher-forcing scoring passes (exactly what the GB10 is for) and
+they cannot share turing's GPU with the resident vLLM server at
+`--gpu-memory-utilization 0.90`.
+
+| # | box | command |
+|---|---|---|
+| 1 | turing | `verify_harvest.py --input seed_harvest.jsonl --output seed_verified.jsonl` |
+| 2 | turing | `harvest_report.py` → full per-level yield table |
+| 3 | turing | `select_compression_inputs.py --n 1500` |
+| 4 | turing | `compress_local_versionB.py --mode oneshot --server … --temperature 0.4` |
+| 5 | turing | stop the vLLM server (frees the GPU) |
+| 6 | spark | `perplexity_score.py` (no `--keep-only`: annotate all rows, so the histogram has the failures too) |
+| 7 | spark | `finalize_seed_register.py` → `seed_register.jsonl` |
+| 8 | spark | `entropy_audit.py --traces … --completion_field completion` → **H_pivot = p80** |
+| 9 | spark | `build_round0_sets.py` → 3 splits + verbose control + Δlogp plot |
+| 10 | any | `show_bakeoff_examples.py --mode faithful --n 5` → the packet's hand-inspection deliverable |
+
+`--n 1500` rather than 1,200: the dry run compresses 1.7× harder than the
+bake-off, and harder compression plausibly lowers the Δlogp pass rate below the
+66% the 1,200 figure assumed. The compression pass is ~30 min of GPU, so the
+headroom is nearly free.
+
 ---
 
 ## Partial results (harvest at 2,043 / 9,000 rollouts)
