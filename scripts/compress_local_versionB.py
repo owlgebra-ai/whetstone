@@ -280,22 +280,71 @@ def clean_compact_lines(text: str) -> str:
     return "\n".join(ln for ln in lines if ln.strip())
 
 
-def clean_oneshot(text: str) -> str:
-    """Clean a whole-trace compact rewrite.
+_FENCE = re.compile(r"^\s*```")
+_FINAL_ANSWER = re.compile(r"^\s*(?:#{1,6}\s*)?\**\s*final\s+answer\b", re.I)
+_BOXED = re.compile(r"\\boxed\{")
+_TRAILING_JUNK = re.compile(r"^\s*(?:-{3,}|\*{3,}|_{3,}|\$\$|```)\s*$")
 
-    Both cards present their exemplars as 4-space-indented markdown code
-    blocks, and the model faithfully copies that indentation into its output.
-    It is a card-formatting artifact rather than register notation — identical
-    in both arms — so it is dedented here rather than being paid for in tokens
-    on every line.
+
+def clean_oneshot(text: str) -> tuple[str, list[str]]:
+    """Clean a whole-trace compact rewrite. Returns ``(compact_think, flags)``.
+
+    The register governs the think segment **only**, and card §1.5 forbids a
+    boxed answer inside it — that is exactly the contamination Stage C's
+    answer-segment KL exists to prevent, and it is what disqualified arm B's
+    output in the bake-off.
+
+    The model nonetheless produces one, for a reason created by the card's own
+    ratification: activity 004 required the exemplars be un-indented, and they
+    became ``` fenced blocks. The model imitates the fence faithfully — opens
+    it, writes the register, **closes it**, and then continues in its native
+    voice with ``**Final Answer** \\boxed{...}``. Measured on the P3 dry run,
+    44% of rewrites carried such a trailer.
+
+    So the closing fence is treated as a hard end-of-register marker rather
+    than as decoration, and any surviving final-answer flourish is cut. v1's
+    rule only stripped a fence at the very *end* of the text, which is
+    precisely the case that does not occur here.
+
+    Flags are returned rather than swallowed: a rising trailer rate is card
+    feedback, not a cleaning detail.
     """
-    text = re.sub(r"^\s*```[a-zA-Z]*\n|```\s*$", "", text.strip())
-    lines = [ln.rstrip() for ln in text.splitlines()]
-    lines = [ln for ln in lines if ln.strip()]
-    if not lines:
-        return ""
-    indent = min(len(ln) - len(ln.lstrip()) for ln in lines)
-    return "\n".join(ln[indent:] for ln in lines)
+    flags: list[str] = []
+    # NB: strip newlines only. `text.strip()` would remove the *first* line's
+    # indentation, making min-indent 0 and defeating the dedent below for every
+    # uniformly-indented block — which is exactly the shape being dedented.
+    lines = text.strip("\n").rstrip().splitlines()
+    while lines and not lines[0].strip():
+        lines.pop(0)
+    start = 0
+    if lines and _FENCE.match(lines[0]):
+        start = 1                                    # drop the opening fence
+    body = lines[start:]
+
+    # End of register = the closing fence, wherever it is.
+    for i, ln in enumerate(body):
+        if _FENCE.match(ln):
+            if i != len(body) - 1:
+                flags.append("fence_trailer")
+            body = body[:i]
+            break
+
+    # Belt and braces: a final-answer flourish with no fence around it.
+    for i, ln in enumerate(body):
+        if _FINAL_ANSWER.match(ln) or _BOXED.search(ln):
+            flags.append("boxed_in_think" if _BOXED.search(ln)
+                         else "final_answer_trailer")
+            body = body[:i]
+            break
+
+    while body and _TRAILING_JUNK.match(body[-1]):    # orphaned ---, $$, ```
+        body.pop()
+
+    out = [ln.rstrip() for ln in body if ln.strip()]
+    if not out:
+        return "", flags or ["empty"]
+    indent = min(len(ln) - len(ln.lstrip()) for ln in out)
+    return "\n".join(ln[indent:] for ln in out), flags
 
 
 def build_oneshot_prompt(tokenizer, system_prompt: str, problem: str,
@@ -374,6 +423,13 @@ def _build_record(p: dict, tokenizer, meta: dict) -> dict:
             / max(1, _approx_tokens(p["thinking_original"], tokenizer))
         ),
         "verify_ok": bool(verify_response(completion, p["ground_truth"])),
+        # What clean_oneshot had to remove. Recorded per record so a rising
+        # trailer rate reads as card feedback rather than vanishing into the
+        # cleaner (P3 Part 2: "that's register-card feedback for the user").
+        "clean_flags": p.get("clean_flags", []),
+        # Hard post-condition on card §1.5: the register governs the think
+        # segment only. If this ever fires, the corpus is contaminated.
+        "think_has_boxed": bool(_BOXED.search(compact_think)),
         "arm": meta["arm"],
         "card_path": meta["card_path"],
         "card_git_sha": meta["card_git_sha"],
@@ -443,8 +499,12 @@ def _run_oneshot_server(args, problems, tokenizer, system_prompt, meta) -> int:
                                      "src_candidate_idx": p["src_candidate_idx"],
                                      "error": res.error}) + "\n")
             return
-        p["compacts_per_chunk"] = [clean_oneshot(res.text) or "[empty]"]
+        cleaned, flags = clean_oneshot(res.text)
+        p["compacts_per_chunk"] = [cleaned or "[empty]"]
+        p["clean_flags"] = flags
         state["cap"] += int(res.finish_reason == "length")
+        for fl in flags:
+            state[f"flag_{fl}"] = state.get(f"flag_{fl}", 0) + 1
         rec = _build_record(p, tokenizer, meta)
         # P3 gotcha 3: the answer segment was copied through untouched, so a
         # verify failure means the compressor leaked past the think boundary.
@@ -493,24 +553,43 @@ def _finalize(args, meta: dict, n: int) -> None:
     leaked past ``</think>`` — a hard bug, not a quality issue.
     """
     n_bad = 0
+    n_boxed = 0
+    flag_counts: dict[str, int] = {}
     n = 0                       # count the FILE, not this run: on a resume the
     with open(args.output) as f:            # file also holds earlier records.
         for line in f:
             n += 1
-            if not json.loads(line)["verify_ok"]:
+            r = json.loads(line)
+            if not r["verify_ok"]:
                 n_bad += 1
+            if r.get("think_has_boxed"):
+                n_boxed += 1
+            for fl in r.get("clean_flags", []):
+                flag_counts[fl] = flag_counts.get(fl, 0) + 1
     meta["n_records"] = n
+    meta["n_think_has_boxed"] = n_boxed
+    meta["clean_flag_counts"] = flag_counts
     meta["n_verify_fail"] = n_bad
     with open(args.output + ".meta.json", "w") as f:
         json.dump({**meta, "config": vars(args)}, f, indent=1)
 
     print(f"[compress] done, {n} records -> {args.output}", flush=True)
+    if flag_counts:
+        pct = {k: f"{100 * v / max(1, n):.1f}%" for k, v in flag_counts.items()}
+        print(f"[compress] cleaner removed: {flag_counts} ({pct})", flush=True)
     if n_bad:
         print(f"[compress] *** HARD BUG: {n_bad}/{n} records fail verify_response — "
               "the compressor leaked past </think>. Do not use this corpus.",
               file=sys.stderr)
         raise SystemExit(1)
-    print(f"[compress] verify_response: {n}/{n} pass", flush=True)
+    if n_boxed:
+        print(f"[compress] *** HARD BUG: {n_boxed}/{n} compact think segments "
+              "still contain \\boxed{} after cleaning — a card §1.5 violation "
+              "(the register governs the think segment only). Do not use this "
+              "corpus.", file=sys.stderr)
+        raise SystemExit(1)
+    print(f"[compress] verify_response: {n}/{n} pass; "
+          f"0/{n} boxed answers in think", flush=True)
 
 
 def parse_args(argv=None):
@@ -690,7 +769,9 @@ def main(argv=None):
         n_cap = 0
         for p, out in zip(problems, outs):
             o = out.outputs[0]
-            p["compacts_per_chunk"] = [clean_oneshot(o.text) or "[empty]"]
+            cleaned, flags = clean_oneshot(o.text)
+            p["compacts_per_chunk"] = [cleaned or "[empty]"]
+            p["clean_flags"] = flags
             n_cap += int(o.finish_reason == "length")
         n = _write_checkpoint(args.output, problems, tokenizer, meta)
         meta["cap_hit_rate"] = n_cap / max(1, len(problems))
