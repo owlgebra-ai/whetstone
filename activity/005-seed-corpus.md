@@ -206,6 +206,52 @@ scaffold+card encodes `<think>` / `</think>` / `<|im_start|>` / `<|im_end|>` /
 prompt, because the chat template legitimately emits `im_start`/`im_end` at its
 own structural positions — from text we wrote the budget is exactly zero.
 
+### 5. The ratified card made the model put `\boxed{}` **inside** the think segment
+
+Found by a 20-trace dry run of Part 2 against the live server, before the real
+compression pass. **7 of 16 (44%) compact rewrites carried a
+`**Final Answer** \boxed{...}` trailer inside `compact_think`** — a card §1.5
+violation, the contamination Stage C's answer-segment KL exists to prevent, and
+precisely the failure that disqualified **arm B** in the bake-off, now appearing
+in arm A.
+
+The cause is the card's own ratification. Activity 004 required the exemplars be
+un-indented; they became ` ``` ` fenced blocks. The model imitates the fence
+faithfully — opens it, writes the register, **closes it**, and then continues in
+its native markdown voice:
+
+```
+⇒ Yes
+```                 ← model closes the fence …
+**Final Answer**    ← … and keeps going
+\boxed{Yes}
+```
+
+v1's `clean_oneshot` stripped a fence only at the very *end* of the text, which
+is exactly the case that does not occur. The closing fence is now treated as a
+hard end-of-register marker wherever it appears, with a fallback cut at an
+un-fenced final-answer flourish (1 of the 7 had no fence at all, just
+`### **Final Answer**` + `$$\boxed{a}$$`).
+
+Re-run on the same traces with the fix: **0/10 `think_has_boxed`**, 5 trailers
+cut, and register marker density **4.23 per 100 compact think tokens** against
+the bake-off's 4.74 — the cleaning removes the trailer without damaging the
+register. `_finalize` now hard-fails on any surviving `\boxed{}` in think, the
+same standing as the pre-existing answer-segment leak check, and the per-record
+`clean_flags` make the trailer rate visible as card feedback instead of
+disappearing into the cleaner.
+
+Same function also had a latent dedent bug: `text.strip()` removed the *first*
+line's indentation, so min-indent computed as 0 and uniformly-indented blocks
+were never dedented — silently negating half of activity 004's un-indent fix,
+whose whole point was that indentation whitespace was 8.2% of arm A's excess
+surprisal.
+
+**Two findings in this packet (3 and 5) are both "the card was edited, and a
+downstream text-processing rule that keyed on its old shape stopped working
+silently."** Neither produced an error. Worth treating as a standing hazard for
+every future card edit.
+
 ---
 
 ## Partial results (harvest at 2,043 / 9,000 rollouts)
