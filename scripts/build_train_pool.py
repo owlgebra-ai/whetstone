@@ -92,7 +92,13 @@ def _gsm8k_gold(answer_field: str) -> str | None:
 def load_deepmath(revision: str, limit: int | None = None) -> Iterable[dict]:
     from datasets import load_dataset
 
-    ds = load_dataset(DEEPMATH_REPO, split="train", revision=revision, streaming=True)
+    # Not streamed: the 10 parquet shards total ~2.1 GB and land in the shared
+    # HF cache, so re-runs and the SCA arm cost nothing.
+    ds = load_dataset(DEEPMATH_REPO, split="train", revision=revision)
+    # Drop the three r1_solution traces before iterating — they are ~90% of the
+    # bytes and Stage 1 blindness means we must not carry them into the pool.
+    ds = ds.select_columns([c for c in ("question", "final_answer", "difficulty", "topic")
+                            if c in ds.column_names])
     for i, rec in enumerate(ds):
         if limit is not None and i >= limit:
             break
