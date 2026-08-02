@@ -217,6 +217,45 @@ def clean_compact_lines(text: str) -> str:
     return "\n".join(ln for ln in lines if ln.strip())
 
 
+def clean_oneshot(text: str) -> str:
+    """Clean a whole-trace compact rewrite.
+
+    Both cards present their exemplars as 4-space-indented markdown code
+    blocks, and the model faithfully copies that indentation into its output.
+    It is a card-formatting artifact rather than register notation — identical
+    in both arms — so it is dedented here rather than being paid for in tokens
+    on every line.
+    """
+    text = re.sub(r"^\s*```[a-zA-Z]*\n|```\s*$", "", text.strip())
+    lines = [ln.rstrip() for ln in text.splitlines()]
+    lines = [ln for ln in lines if ln.strip()]
+    if not lines:
+        return ""
+    indent = min(len(ln) - len(ln.lstrip()) for ln in lines)
+    return "\n".join(ln[indent:] for ln in lines)
+
+
+def build_oneshot_prompt(tokenizer, system_prompt: str, problem: str,
+                         thinking: str) -> str:
+    """Whole think segment in, whole compact register out.
+
+    The chunkwise loop below is v1 §3.4's machinery and it **fails on Qwen3-1.7B
+    with a notation-neutral prompt** (activity 004): cumulative ORIGINAL CHUNKS
+    plus previously-emitted COMPACT CHUNKS is a repetition attractor — the model
+    locks onto one whole-problem summary and copies it at every subsequent
+    depth — and register-marker density comes out ~10x below the cards' own
+    exemplars. One-shot reproduces the card's exemplar style directly.
+    """
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content":
+            f"PROBLEM: {problem}\n\nVERBOSE REASONING:\n{thinking}"},
+    ]
+    return tokenizer.apply_chat_template(
+        messages, tokenize=False, add_generation_prompt=True, enable_thinking=False
+    )
+
+
 def build_prefill_prompt(tokenizer, system_prompt: str, problem: str,
                          originals: list[str], prev_compacts: list[str]) -> str:
     """Assemble the full prompt with assistant prefill through chunk k-1.
@@ -304,8 +343,34 @@ def _write_checkpoint(output: str, problems: list[dict], tokenizer, meta: dict) 
     return done
 
 
+def _finalize(args, meta: dict, n: int) -> None:
+    """Answer-segment integrity (P3 gotcha 3) + provenance sidecar.
+
+    The answer text was copied through untouched, so every record must still
+    verify exactly as its source trace did. A failure means the compressor
+    leaked past ``</think>`` — a hard bug, not a quality issue.
+    """
+    n_bad = 0
+    with open(args.output) as f:
+        for line in f:
+            if not json.loads(line)["verify_ok"]:
+                n_bad += 1
+    meta["n_records"] = n
+    meta["n_verify_fail"] = n_bad
+    with open(args.output + ".meta.json", "w") as f:
+        json.dump({**meta, "config": vars(args)}, f, indent=1)
+
+    print(f"[compress] done, {n} records -> {args.output}", flush=True)
+    if n_bad:
+        print(f"[compress] *** HARD BUG: {n_bad}/{n} records fail verify_response — "
+              "the compressor leaked past </think>. Do not use this corpus.",
+              file=sys.stderr)
+        raise SystemExit(1)
+    print(f"[compress] verify_response: {n}/{n} pass", flush=True)
+
+
 def parse_args(argv=None):
-    ap = argparse.ArgumentParser(description="WHETSTONE prompted chunkwise compression")
+    ap = argparse.ArgumentParser(description="WHETSTONE prompted register compression")
     ap.add_argument("--input", required=True)
     ap.add_argument("--output", required=True)
     ap.add_argument("--model", required=True)
@@ -314,6 +379,11 @@ def parse_args(argv=None):
                          "scaffold. The ONLY thing that may differ between arms.")
     ap.add_argument("--arm", default="",
                     help="label recorded on every record (e.g. A / B)")
+    ap.add_argument("--mode", choices=["oneshot", "chunkwise"], default="oneshot",
+                    help="oneshot: whole think segment -> whole compact rewrite "
+                         "(default; chunkwise degenerates on Qwen3-1.7B, see "
+                         "activity 004). chunkwise: v1 §3.4 prefill loop.")
+    ap.add_argument("--max-tokens-oneshot", type=int, default=2048)
     ap.add_argument("--tp", type=int, default=1)
     ap.add_argument("--gpu-mem", type=float, default=0.85)
     ap.add_argument("--max-model-len", type=int, default=32768)
@@ -403,11 +473,20 @@ def main(argv=None):
         return
     print(f"[load] {len(problems)} problems to compress", flush=True)
 
-    for p in problems:
-        chunks = chunk_thinking(p["thinking_original"], args.max_chunk_tokens, tokenizer)
-        p["chunks"] = merge_and_cap(chunks, args.max_chunks)
-        p["n_chunks"] = len(p["chunks"])
-        p["compacts_per_chunk"] = [None] * p["n_chunks"]
+    if args.mode == "chunkwise":
+        for p in problems:
+            chunks = chunk_thinking(p["thinking_original"], args.max_chunk_tokens,
+                                    tokenizer)
+            p["chunks"] = merge_and_cap(chunks, args.max_chunks)
+            p["n_chunks"] = len(p["chunks"])
+            p["compacts_per_chunk"] = [None] * p["n_chunks"]
+    else:
+        # One "chunk" = the whole think segment, so every downstream consumer
+        # (metrics, inspection, checkpointing) sees the same record shape.
+        for p in problems:
+            p["chunks"] = [p["thinking_original"]]
+            p["n_chunks"] = 1
+            p["compacts_per_chunk"] = [None]
 
     llm = LLM(
         model=args.model,
@@ -424,6 +503,24 @@ def main(argv=None):
         stop=STOP_STRINGS,
         seed=args.seed,
     )
+
+    if args.mode == "oneshot":
+        sp_one = SamplingParams(temperature=args.temperature, top_p=args.top_p,
+                                max_tokens=args.max_tokens_oneshot, seed=args.seed)
+        prompts = [build_oneshot_prompt(tokenizer, system_prompt, p["prompt"],
+                                        p["thinking_original"]) for p in problems]
+        outs = llm.generate(prompts, sp_one)
+        n_cap = 0
+        for p, out in zip(problems, outs):
+            o = out.outputs[0]
+            p["compacts_per_chunk"] = [clean_oneshot(o.text) or "[empty]"]
+            n_cap += int(o.finish_reason == "length")
+        n = _write_checkpoint(args.output, problems, tokenizer, meta)
+        meta["cap_hit_rate"] = n_cap / max(1, len(problems))
+        print(f"[oneshot] {n} records, cap-hit {meta['cap_hit_rate']:.1%} "
+              f"at max_tokens={args.max_tokens_oneshot}", flush=True)
+        _finalize(args, meta, n)
+        return
 
     max_depth = max(p["n_chunks"] for p in problems)
     last_save = 0
@@ -449,26 +546,7 @@ def main(argv=None):
             print(f"[checkpoint] depth={depth} wrote {n} completed records", flush=True)
 
     n = _write_checkpoint(args.output, problems, tokenizer, meta)
-
-    # Answer-segment integrity (P3 gotcha 3): the answer text was copied
-    # through, so every record must still verify exactly as its source did.
-    n_bad = 0
-    with open(args.output) as f:
-        for line in f:
-            if not json.loads(line)["verify_ok"]:
-                n_bad += 1
-    meta["n_records"] = n
-    meta["n_verify_fail"] = n_bad
-    with open(args.output + ".meta.json", "w") as f:
-        json.dump({**meta, "config": vars(args)}, f, indent=1)
-
-    print(f"[compress] done, {n} records -> {args.output}", flush=True)
-    if n_bad:
-        print(f"[compress] *** HARD BUG: {n_bad}/{n} records fail verify_response — "
-              "the compressor leaked past </think>. Do not use this corpus.",
-              file=sys.stderr)
-        raise SystemExit(1)
-    print(f"[compress] verify_response: {n}/{n} pass", flush=True)
+    _finalize(args, meta, n)
 
 
 if __name__ == "__main__":
