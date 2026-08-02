@@ -69,6 +69,10 @@ Rules:
 - If the original contains self-correction ("wait", "actually", "no"),
   preserve the correction and its resolution in register form.
 - One to a few lines per chunk; follow the card's step-marker convention.
+- Rewrite ONLY the LAST ORIGINAL CHUNK shown. The earlier original and compact
+  chunks are context: do not restate, re-derive or re-summarize what an earlier
+  COMPACT CHUNK already covers, and continue its step numbering rather than
+  restarting at 1.
 
 REGISTER CARD:
 {card}"""
