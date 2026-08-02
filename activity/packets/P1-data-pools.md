@@ -1,6 +1,6 @@
 # P1 — Data pools and eval suites (DeepMath-103K + GSM8K, SCA-matched evals)
 
-STATUS: ready
+STATUS: in-progress (activity 002)
 MACHINES: spark preferred (CPU work; keeps turing free) — no GPU needed
 DEPENDS ON: P0
 BLOCKS: P2, P3
@@ -15,6 +15,11 @@ Replace the v1 pool (openr1-math / nemotron) with the v2 pool per design §12.7:
 - Design doc §12.7 (pool + eval protocol), §6 (baselines / reporting)
 - `scripts/build_train_pool.py` and `scripts/build_eval_sets.py` (v1 versions — you are modifying, not rewriting; keep their stratification/dedup machinery)
 - v1 procedure `trashed/WHETSTONE_PROCEDURE.md` §1 for the record-schema conventions
+- Activity 001 gotchas + ROADMAP "Facts pinned by activity 001"
+
+## Step 0 — sync the checkouts (activity 001 gotcha 6)
+
+turing's clone lags the Mac (Mac-local commits; `pyproject.toml` and smoke scripts were scp'd, so its tree is dirty). Before anything: push `main` from the Mac, then on the box you work on: `git status` → stash/discard the scp'd duplicates → `git pull` → `uv pip install -p .venv/bin/python -e .` if pyproject changed. If working on spark, note it has no repo clone yet (only `~/workspace/whetstone-scorer` with the venv) — clone the repo there first and reuse the existing `.venv` or make one per P0 Part 3. Always `source .venv/bin/activate` before running scripts.
 
 ## Part 1 — Training pool
 

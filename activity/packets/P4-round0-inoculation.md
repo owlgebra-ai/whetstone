@@ -51,7 +51,7 @@ Implementation rules — each one is a named bug from design §12.4:
 
 **Config:** full-FT Qwen3-1.7B, bf16, sdpa, grad checkpointing ON, LR 1e-5 (calibration LR — this is not capability training), warmup 20 steps + cosine, ≤ 1 epoch over the seed-register train split, per-device batch 1, grad-accum 32, AdamW. Save a checkpoint at **every eval** (every 20 optimizer steps) — the stopping rule selects one *retroactively* (rollback is expected, not exceptional).
 
-**Memory budget (32 GB):** θ bf16 3.4 + grads 3.4 + AdamW moments fp32 ~13.6 + φ (EMA) 3.4 + π_0 frozen eval copy 3.4 ≈ 27 GB + activations (short compact traces, bs 1, grad ckpt) — fits, but barely. If OOM: move π_0 evals to spark over HTTP (it's the same frozen model the reward server already serves — `prompt_logprobs` gives everything the metrics below need) before reaching for 8-bit optimizers.
+**Memory budget (32 GB):** θ bf16 3.4 + grads 3.4 + AdamW moments fp32 ~13.6 + φ (EMA) 3.4 + π_0 frozen eval copy 3.4 ≈ 27 GB + activations (short compact traces, bs 1, grad ckpt) — fits, but barely. If OOM: move π_0 evals to spark over HTTP (it's the same frozen model the reward server already serves — `prompt_logprobs` gives everything the metrics below need; server is `spark:8100` with `VLLM_USE_FLASHINFER_SAMPLER=0`, launch command in activity 001 Run 6) before reaching for 8-bit optimizers.
 
 **Metrics every 20 steps** (the four §7 curves — write to JSONL + a live-updating PNG):
 1. **Held-out register p95 gap ↓** (stop criterion S1): teacher-force the `heldout_register` split through the *trainee*; per think-token `d_t = log p(top1) − log p(actual)`; report p95 over all tokens. S1 fires when p95 < τ_spike.

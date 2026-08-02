@@ -37,7 +37,7 @@ Log yield **per level band**. Expectation: 30–60% mid-difficulty, ~10–20% to
 - **Sampling:** T ∈ [0.3, 0.5] (design wants mild register-internal variance — use 0.4), single completion per trace.
 - **Chunkwise invariant (v1 §3.4):** at depth k the model sees ORIGINAL chunks 1..k + COMPACT chunks 1..k−1 and emits only COMPACT chunk k. Depth-batch across problems for throughput. Verify on 3 hand-inspected examples that chunk alignment survives the Qwen3 template before the bulk run.
 - **Δlogp gate** (`scripts/perplexity_score.py`, v1 §3.6 — its only remaining use in v2):
-  `delta = log P(a* | q, compact) − log P(a* | q)` under frozen Qwen3-1.7B; keep traces with delta above the v1 threshold. Run this scoring pass on **spark** (prefill-only — exactly what the GB10 is for) while turing moves on.
+  `delta = log P(a* | q, compact) − log P(a* | q)` under frozen Qwen3-1.7B; keep traces with delta above the v1 threshold. Run this scoring pass on **spark** (prefill-only — exactly what the GB10 is for) while turing moves on. Spark rules from activity 001: `source .venv/bin/activate`, `VLLM_USE_FLASHINFER_SAMPLER=0`, and if using the served scorer instead of in-process, it's **port 8100** (8000 is llama-swap — don't touch).
 - **Target:** 300–1,000 accepted traces spanning all level bands. If acceptance is too low, loosen chunk size before touching the Δlogp threshold; if the register itself is the problem (systematically failing on one problem type), that's register-card feedback for the user, not a threshold problem — report it.
 
 **Output:** `/data/whetstone/corpora/seed_register/seed_register.jsonl` with fields: `_uid`, `prompt`, `verbose_think`, `compact_think`, `answer`, `delta_logp`, `level`, provenance (card sha, sampling params).

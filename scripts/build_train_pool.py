@@ -1,269 +1,294 @@
-"""Build the WHETSTONE train + val problem pool from three math corpora.
+"""Build the WHETSTONE v2 train + val problem pool (design §12.7, packet P1).
 
-Output schema (one JSONL line per problem):
+v2 replaces v1's openr1/nemotron mix with:
+
+  * **DeepMath-103K** (`zwhe99/DeepMath-103K`) — main pool. Verified golds plus a
+    `difficulty` label in [1,10] that becomes `level`, which every later stage
+    uses for stratified probes, curriculum bands and pass-rate stratification.
+  * **GSM8K** (`openai/gsm8k`, config `main`, split `train`) — the easy tier,
+    ~20% of the pool, all at `level: 1`.
+
+Output schema (one JSONL line per problem, no header line):
+
     {
-        "_uid": "<source>:<sha8>",
+        "_uid": "<source>:<sha8-of-normalized-prompt>",
         "prompt": "<problem statement>",
         "ground_truth": "<gold answer string>",
-        "source": "openr1-math" | "nemotron-sft-math" | "nemotron-math-proofs",
-        "subject": "<sub-category, when available>",
-        "level":   "<difficulty, when available>",
+        "level": <int>,
+        "source": "deepmath" | "gsm8k",
+        "difficulty": <float, DeepMath only>,
+        "topic": "<DeepMath topic, when present>"
     }
 
-This format is the input to Stage 1 blind harvest (`scripts/harvest.py`).
-The original solutions are NOT preserved here — Stage 1 needs only the
-problem statement and the gold answer (blindness invariant, §2).
+`_uid / prompt / ground_truth / level` are the non-negotiable four (v1 §1);
+`source / difficulty / topic` are additive and safe for readers that ignore them.
+Pinned dataset revisions and row counts go to the sidecar `*.meta.json` and to
+`pool_stats.json` — never into a JSONL header line (readers json-load every line).
 
-Sampling:
-  * OpenR1-Math-220k is stratified across its `source` field (each original
-    MATH chapter / synthetic source contributes proportionally, so the 30k
-    pool is representative across problem types, not dominated by one source).
-  * Nemotron-SFT-Math-v4 and Nemotron-Math-Proofs-v2 are sampled uniformly.
-  * The three sources are weighted equally by default (~1/3 each); pass
-    --weights to rebalance.
-  * Cross-source dedup on a normalized problem-text hash.
+Gold handling:
+  * GSM8K: the text after ``#### ``, stripped of ``$``/commas/units, then run
+    through ``whetstone.verify._normalize`` and stored in normalized form.
+  * DeepMath: stored **verbatim**. The golds are LaTeX (``\\frac{3}{4}``,
+    intervals, sets); reformatting them here would silently shift verifier yield
+    everywhere downstream. The verifier normalizes at compare time.
 
-Train/val split is stratified by `source` so eval distribution mirrors train.
+Part 2 of packet P1 (``--sca_out_dir``) additionally emits the three-stage
+SCA-comparison curriculum from the same deduplicated source pools.
 """
 
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
+import math
 import os
 import random
 import re
-from collections import defaultdict
+from collections import Counter
 from typing import Iterable
 
-WS = re.compile(r"\s+")
+from whetstone.poolutil import (
+    dedup_key,
+    norm_text,
+    stratified_sample,
+    uid_for,
+    write_jsonl,
+    write_meta,
+)
+from whetstone.verify import _normalize as verify_normalize
+
+# Pinned dataset revisions (resolved 2026-08-01; see activity/002-data-pools.md).
+DEEPMATH_REPO = "zwhe99/DeepMath-103K"
+DEEPMATH_REV = "5cf055d1fe3d7a2eb19719ac020211469736ae44"
+GSM8K_REPO = "openai/gsm8k"
+GSM8K_REV = "740312add88f781978c0658806c59bc2815b9866"
+
+GSM8K_ANS_RE = re.compile(r"####\s*(.+?)\s*$", re.MULTILINE)
+# Difficulty bands used by the SCA-arm stage 3 ("500 low + 500 high").
+SCA_LOW_MAX = 4.0
+SCA_HIGH_MIN = 7.0
 
 
-def _norm(text: str) -> str:
-    return WS.sub(" ", (text or "")).strip()
+def _level_from_difficulty(d: float) -> int:
+    """DeepMath difficulty is a float in 0.5 steps → integer level band.
+
+    Round-half-up (not Python's banker's rounding) so 4.5 → 5 deterministically.
+    """
+    return int(math.floor(float(d) + 0.5))
 
 
-def _dedup_key(prompt: str) -> str:
-    return hashlib.sha1(_norm(prompt).encode("utf-8")).hexdigest()[:16]
-
-
-def _uid(source: str, prompt: str, idx: int) -> str:
-    return f"{source}:{hashlib.sha1(prompt.encode('utf-8')).hexdigest()[:8]}:{idx}"
-
-
-def _pick(rec: dict, *names: str) -> str | None:
-    for n in names:
-        if n in rec and rec[n] not in (None, ""):
-            return str(rec[n])
-    return None
-
-
-def _normalize(rec: dict, source: str, idx: int) -> dict | None:
-    prompt = _pick(rec, "problem", "question", "prompt", "input")
-    gold = _pick(rec, "ground_truth", "answer", "gold_answer", "expected_answer",
-                 "verification")
-    if not prompt or not gold:
+def _gsm8k_gold(answer_field: str) -> str | None:
+    """`#### 1,234` → `1234`, normalized through the deterministic verifier."""
+    m = GSM8K_ANS_RE.search(answer_field or "")
+    if not m:
         return None
-    subject = _pick(rec, "subject", "source_chapter", "source", "category", "topic",
-                    "type", "domain")
-    level = _pick(rec, "level", "difficulty", "grade")
+    raw = m.group(1).strip()
+    raw = raw.replace("$", "").replace(",", "").strip()
+    raw = raw.rstrip(".").strip()
+    gold = verify_normalize(raw)
+    return gold or None
+
+
+def load_deepmath(revision: str, limit: int | None = None) -> Iterable[dict]:
+    from datasets import load_dataset
+
+    ds = load_dataset(DEEPMATH_REPO, split="train", revision=revision, streaming=True)
+    for i, rec in enumerate(ds):
+        if limit is not None and i >= limit:
+            break
+        prompt = norm_text(rec.get("question"))
+        gold = (rec.get("final_answer") or "").strip()  # verbatim, no normalization
+        diff = rec.get("difficulty")
+        if not prompt or not gold or diff is None:
+            continue
+        yield {
+            "_uid": uid_for("deepmath", prompt),
+            "prompt": prompt,
+            "ground_truth": gold,
+            "level": _level_from_difficulty(diff),
+            "source": "deepmath",
+            "difficulty": float(diff),
+            "topic": rec.get("topic") or "",
+            "_dedup": dedup_key(prompt),
+        }
+
+
+def load_gsm8k(revision: str, limit: int | None = None) -> Iterable[dict]:
+    from datasets import load_dataset
+
+    ds = load_dataset(GSM8K_REPO, "main", split="train", revision=revision)
+    for i, rec in enumerate(ds):
+        if limit is not None and i >= limit:
+            break
+        prompt = norm_text(rec.get("question"))
+        gold = _gsm8k_gold(rec.get("answer") or "")
+        if not prompt or not gold:
+            continue
+        yield {
+            "_uid": uid_for("gsm8k", prompt),
+            "prompt": prompt,
+            "ground_truth": gold,
+            "level": 1,
+            "source": "gsm8k",
+            "_dedup": dedup_key(prompt),
+        }
+
+
+def _dedup(rows: Iterable[dict], seen: set[str], tag: str) -> list[dict]:
+    kept, n_in, n_dup = [], 0, 0
+    for r in rows:
+        n_in += 1
+        if r["_dedup"] in seen:
+            n_dup += 1
+            continue
+        seen.add(r["_dedup"])
+        kept.append(r)
+        if n_in % 20000 == 0:
+            print(f"  [{tag}] {n_in} read, {len(kept)} kept", flush=True)
+    print(f"[load] {tag}: {n_in} read → {len(kept)} unique ({n_dup} dup)", flush=True)
+    return kept
+
+
+def _dist(rows: list[dict]) -> dict:
     return {
-        "_uid": _uid(source, prompt, idx),
-        "prompt": _norm(prompt),
-        "ground_truth": _norm(gold),
-        "source": source,
-        "subject": subject or "",
-        "level": level or "",
-        "_dedup": _dedup_key(prompt),
+        "n": len(rows),
+        "by_source": dict(Counter(r["source"] for r in rows)),
+        "by_level": {str(k): v for k, v in sorted(Counter(r["level"] for r in rows).items())},
     }
 
 
-def _load_openr1() -> Iterable[dict]:
-    from datasets import load_dataset
-    ds = load_dataset("open-r1/OpenR1-Math-220k", split="train", streaming=True)
-    for i, rec in enumerate(ds):
-        out = _normalize(rec, "openr1-math", i)
-        if out is not None:
-            yield out
+def _build_sca_arm(dm: list[dict], gsm: list[dict], out_dir: str, seed: int) -> dict:
+    """Part 2: SCA-comparison curriculum — three disjoint stages, seed 0.
 
+    stage1: 2000 GSM8K
+    stage2: 1400 GSM8K + 600 DeepMath difficulty <= 4
+    stage3: 1000 GSM8K + 500 DeepMath low (<=4) + 500 DeepMath high (>=7)
+    """
+    rng = random.Random(seed)
+    gsm_pool = list(gsm)
+    rng.shuffle(gsm_pool)
+    low = [r for r in dm if r["difficulty"] <= SCA_LOW_MAX]
+    high = [r for r in dm if r["difficulty"] >= SCA_HIGH_MIN]
+    rng.shuffle(low)
+    rng.shuffle(high)
 
-def _load_nemotron_sft() -> Iterable[dict]:
-    from datasets import load_dataset
-    ds = load_dataset("nvidia/Nemotron-SFT-Math-v4", split="train", streaming=True)
-    for i, rec in enumerate(ds):
-        out = _normalize(rec, "nemotron-sft-math", i)
-        if out is not None:
-            yield out
+    need_gsm = 2000 + 1400 + 1000
+    if len(gsm_pool) < need_gsm:
+        raise SystemExit(f"SCA arm needs {need_gsm} GSM8K rows, have {len(gsm_pool)}")
+    if len(low) < 1100 or len(high) < 500:
+        raise SystemExit(f"SCA arm needs 1100 low / 500 high DeepMath, have {len(low)}/{len(high)}")
 
+    g1, g2, g3 = gsm_pool[:2000], gsm_pool[2000:3400], gsm_pool[3400:4400]
+    l2, l3 = low[:600], low[600:1100]
+    h3 = high[:500]
 
-def _load_nemotron_proofs() -> Iterable[dict]:
-    from datasets import load_dataset
-    ds = load_dataset("nvidia/Nemotron-Math-Proofs-v2", split="train", streaming=True)
-    for i, rec in enumerate(ds):
-        out = _normalize(rec, "nemotron-math-proofs", i)
-        if out is not None:
-            yield out
+    stages = {
+        "sca_stage1": g1,
+        "sca_stage2": g2 + l2,
+        "sca_stage3": g3 + l3 + h3,
+    }
+    summary = {}
+    for name, rows in stages.items():
+        rows = list(rows)
+        rng.shuffle(rows)
+        path = os.path.join(out_dir, f"{name}.jsonl")
+        n = write_jsonl(path, rows)
+        summary[name] = _dist(rows)
+        summary[name]["path"] = path
+        print(f"[sca] {name}: {n} → {path}", flush=True)
 
-
-LOADERS = {
-    "openr1-math": _load_openr1,
-    "nemotron-sft-math": _load_nemotron_sft,
-    "nemotron-math-proofs": _load_nemotron_proofs,
-}
-
-
-def _stratified_sample(items: list[dict], key_fn, n: int,
-                       rng: random.Random) -> list[dict]:
-    """Sample n items, preserving the per-key distribution of key_fn(items)."""
-    if n >= len(items):
-        return list(items)
-    buckets: dict[str, list[dict]] = defaultdict(list)
-    for it in items:
-        buckets[key_fn(it)].append(it)
-    out: list[dict] = []
-    total = len(items)
-    # First pass: proportional allocation, floor.
-    quotas: dict[str, int] = {}
-    for k, bucket in buckets.items():
-        quotas[k] = (n * len(bucket)) // total
-    # Sort keys for determinism.
-    keys = sorted(buckets.keys())
-    for k in keys:
-        rng.shuffle(buckets[k])
-        out.extend(buckets[k][: quotas[k]])
-    # Top up: round-robin from remaining items, largest bucket first.
-    remaining = {k: buckets[k][quotas[k]:] for k in keys}
-    i = 0
-    while len(out) < n and any(remaining.values()):
-        for k in sorted(keys, key=lambda x: -len(remaining[x])):
-            if not remaining[k]:
-                continue
-            out.append(remaining[k].pop(0))
-            if len(out) >= n:
-                break
-            i += 1
-    return out[:n]
-
-
-def _write_jsonl(path: str, rows: Iterable[dict]) -> int:
-    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
-    n = 0
-    with open(path, "w") as f:
-        for r in rows:
-            r = {k: v for k, v in r.items() if not k.startswith("_")}
-            f.write(json.dumps(r, ensure_ascii=False) + "\n")
-            n += 1
-    return n
+    # Disjointness assertion across the three stages.
+    uids = [{r["_uid"] for r in v} for v in stages.values()]
+    for i in range(len(uids)):
+        for j in range(i + 1, len(uids)):
+            overlap = uids[i] & uids[j]
+            if overlap:
+                raise SystemExit(f"SCA stages {i+1}/{j+1} overlap on {len(overlap)} uids")
+    return summary
 
 
 def parse_args(argv=None):
-    ap = argparse.ArgumentParser(description="Build WHETSTONE train+val pool from 3 datasets")
-    ap.add_argument("--out_dir", required=True)
+    ap = argparse.ArgumentParser(description="Build WHETSTONE v2 train+val pool")
+    ap.add_argument("--out_dir", required=True, help="e.g. /data/whetstone/data/pool")
+    ap.add_argument("--sca_out_dir", default="", help="e.g. /data/whetstone/data/sca_arm")
     ap.add_argument("--n_train", type=int, default=30000)
     ap.add_argument("--n_val", type=int, default=2000)
-    ap.add_argument("--weights", default="openr1-math:1,nemotron-sft-math:1,nemotron-math-proofs:1",
-                    help="Comma list source:weight — controls per-source allocation")
+    ap.add_argument("--gsm8k_frac", type=float, default=0.20)
     ap.add_argument("--seed", type=int, default=0)
-    ap.add_argument("--sources", default=",".join(LOADERS.keys()),
-                    help="Comma list of sources to include")
+    ap.add_argument("--deepmath_rev", default=DEEPMATH_REV)
+    ap.add_argument("--gsm8k_rev", default=GSM8K_REV)
+    ap.add_argument("--limit", type=int, default=0, help="debug: cap rows read per source")
     return ap.parse_args(argv)
 
 
 def main(argv=None):
     args = parse_args(argv)
     rng = random.Random(args.seed)
+    limit = args.limit or None
 
-    weights = {k: float(v) for k, v in (s.split(":") for s in args.weights.split(","))}
-    active_sources = [s for s in args.sources.split(",") if s in LOADERS]
-    if not active_sources:
-        raise SystemExit(f"no valid sources in {args.sources!r}")
-    total_w = sum(weights.get(s, 0.0) for s in active_sources)
-    if total_w <= 0:
-        raise SystemExit(f"all weights zero for {active_sources}")
+    seen: set[str] = set()
+    print(f"[load] {GSM8K_REPO}@{args.gsm8k_rev[:8]} ...", flush=True)
+    gsm = _dedup(load_gsm8k(args.gsm8k_rev, limit), seen, "gsm8k")
+    print(f"[load] {DEEPMATH_REPO}@{args.deepmath_rev[:8]} (streaming) ...", flush=True)
+    dm = _dedup(load_deepmath(args.deepmath_rev, limit), seen, "deepmath")
 
-    # Pull each source, dedup within-source.
-    by_source: dict[str, list[dict]] = {}
-    seen_global: set[str] = set()
-    for src in active_sources:
-        print(f"[load] streaming {src}...", flush=True)
-        kept: list[dict] = []
-        seen_local: set[str] = set()
-        n_in = n_dup = 0
-        for rec in LOADERS[src]():
-            n_in += 1
-            if rec["_dedup"] in seen_local:
-                n_dup += 1
-                continue
-            if rec["_dedup"] in seen_global:
-                n_dup += 1
-                continue
-            seen_local.add(rec["_dedup"])
-            seen_global.add(rec["_dedup"])
-            kept.append(rec)
-            if n_in % 5000 == 0:
-                print(f"  [{src}] {n_in} read, {len(kept)} kept", flush=True)
-        print(f"[load] {src}: {n_in} read → {len(kept)} unique ({n_dup} dup)", flush=True)
-        by_source[src] = kept
-
-    total_pool = sum(len(v) for v in by_source.values())
     n_total = args.n_train + args.n_val
-    if total_pool < n_total:
-        print(f"[WARN] only {total_pool} problems available; targeting {n_total}",
-              flush=True)
+    n_gsm = min(int(round(n_total * args.gsm8k_frac)), len(gsm))
+    n_dm = min(n_total - n_gsm, len(dm))
+    print(f"[plan] target {n_total} = {n_gsm} gsm8k + {n_dm} deepmath", flush=True)
 
-    # Per-source target count proportional to weight, clamped to availability.
-    targets: dict[str, int] = {}
-    for s in active_sources:
-        alloc = int(round(n_total * weights.get(s, 0.0) / total_w))
-        targets[s] = min(alloc, len(by_source[s]))
-    # Top up from the largest undersampled source if rounding left seats empty.
-    while sum(targets.values()) < min(n_total, total_pool):
-        room = [(s, len(by_source[s]) - targets[s]) for s in active_sources]
-        room.sort(key=lambda x: -x[1])
-        for s, r in room:
-            if r > 0:
-                targets[s] += 1
-                break
+    gsm_s = stratified_sample(gsm, lambda r: "1", n_gsm, rng)
+    dm_s = stratified_sample(dm, lambda r: str(r["level"]), n_dm, rng)
+    pool = gsm_s + dm_s
+    rng.shuffle(pool)
 
-    print("[plan] per-source sample targets:", dict(targets), flush=True)
+    # Val is stratified over source×level so it mirrors train exactly.
+    val = stratified_sample(pool, lambda r: f"{r['source']}|{r['level']}", args.n_val, rng)
+    val_uids = {r["_uid"] for r in val}
+    train = [r for r in pool if r["_uid"] not in val_uids][: args.n_train]
 
-    # Stratify within each source by `subject` (problem type), to preserve
-    # representation. Fall back to the whole bucket when subject missing.
-    sampled: list[dict] = []
-    for s in active_sources:
-        sub = _stratified_sample(
-            by_source[s],
-            key_fn=lambda r: r.get("subject") or "_",
-            n=targets[s],
-            rng=rng,
-        )
-        sampled.extend(sub)
-        print(f"[sample] {s}: {len(sub)} (from {len(by_source[s])})", flush=True)
+    train_path = os.path.join(args.out_dir, "train_30k.jsonl")
+    val_path = os.path.join(args.out_dir, "val_2k.jsonl")
+    n_tr = write_jsonl(train_path, train)
+    n_va = write_jsonl(val_path, val)
+    print(f"[done] train={n_tr} → {train_path}", flush=True)
+    print(f"[done] val  ={n_va} → {val_path}", flush=True)
 
-    rng.shuffle(sampled)
+    meta = {
+        "builder": "scripts/build_train_pool.py",
+        "seed": args.seed,
+        "sources": {
+            "deepmath": {"repo": DEEPMATH_REPO, "revision": args.deepmath_rev,
+                         "split": "train", "unique_rows": len(dm)},
+            "gsm8k": {"repo": GSM8K_REPO, "config": "main", "revision": args.gsm8k_rev,
+                      "split": "train", "unique_rows": len(gsm)},
+        },
+        "gsm8k_frac": args.gsm8k_frac,
+        "uid_recipe": "<source>:sha1(whitespace-collapsed prompt)[:8]",
+        "gold_policy": {
+            "deepmath": "verbatim (LaTeX preserved)",
+            "gsm8k": "post-#### text, $/comma stripped, whetstone.verify._normalize applied",
+        },
+    }
+    write_meta(train_path, {**meta, "file": train_path, "rows": n_tr, **_dist(train)})
+    write_meta(val_path, {**meta, "file": val_path, "rows": n_va, **_dist(val)})
 
-    # Final train/val split, stratified by source.
-    val = _stratified_sample(sampled, key_fn=lambda r: r["source"],
-                             n=min(args.n_val, len(sampled) // 10), rng=rng)
-    val_keys = {r["_uid"] for r in val}
-    train = [r for r in sampled if r["_uid"] not in val_keys]
-    if len(train) > args.n_train:
-        train = train[: args.n_train]
+    stats = {
+        **meta,
+        "train": {"path": train_path, **_dist(train)},
+        "val": {"path": val_path, **_dist(val)},
+    }
 
-    train_path = os.path.join(args.out_dir, "train_pool.jsonl")
-    val_path = os.path.join(args.out_dir, "val_pool.jsonl")
-    n_tr = _write_jsonl(train_path, train)
-    n_va = _write_jsonl(val_path, val)
-    print(f"[done] train={n_tr} -> {train_path}", flush=True)
-    print(f"[done] val  ={n_va} -> {val_path}", flush=True)
+    if args.sca_out_dir:
+        stats["sca_arm"] = _build_sca_arm(dm, gsm, args.sca_out_dir, args.seed)
 
-    # Per-source distribution report
-    from collections import Counter
-    tr_counts = Counter(r["source"] for r in train)
-    va_counts = Counter(r["source"] for r in val)
-    print("[dist] train:", dict(tr_counts), flush=True)
-    print("[dist] val:  ", dict(va_counts), flush=True)
+    stats_path = os.path.join(args.out_dir, "pool_stats.json")
+    with open(stats_path, "w") as f:
+        json.dump(stats, f, indent=2, ensure_ascii=False)
+        f.write("\n")
+    print(f"[done] stats → {stats_path}", flush=True)
+    print("[dist] train:", json.dumps(_dist(train)), flush=True)
+    print("[dist] val:  ", json.dumps(_dist(val)), flush=True)
 
 
 if __name__ == "__main__":

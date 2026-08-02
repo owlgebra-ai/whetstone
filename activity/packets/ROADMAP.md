@@ -56,3 +56,11 @@ Only **P0–P4 are written in full detail**. P5–P7 are deliberately outlines: 
 2. Every hyperparameter starts from design §12.6; asterisked placeholders get pinned by measurement and the pin recorded in the activity file AND the §12.6 table.
 3. Journals in `activity/NNN-*.md` per README conventions; failures logged as thoroughly as successes.
 4. `enable_thinking=True` on every Qwen3-1.7B template call — rollout, scoring, eval, no exceptions.
+
+## Facts pinned by activity 001 (P0) — binding on all later packets
+
+- Stack: **vllm 0.26.0 / torch 2.11.0+cu130 / transformers 5.14.1 / CPython 3.12.12**, plain PyPI wheels on both boxes. `pyproject.toml` at HEAD is the source of truth.
+- **Scorer/reward server is `spark:8100`** — port 8000 on spark belongs to an unrelated `llama-swap` service (do not kill it; a `curl :8000/v1/models` check false-greens against it). Reachable from turing as `http://192.168.1.253:8100` (LAN) or `http://198.18.0.1:8100` (direct link). Launch command verbatim in activity 001 Run 6.
+- **Every vLLM invocation on spark needs `VLLM_USE_FLASHINFER_SAMPLER=0`** (GB10/sm_121 FlashInfer sampler JIT failure; the error message about sm75 is misleading). turing does not need it.
+- **`source .venv/bin/activate` before running anything that starts vLLM** — never bare `.venv/bin/python` (ninja must be on PATH or engine init dies with a buried FileNotFoundError).
+- **Sync checkouts before remote work:** turing's clone can lag the Mac (activity 001 gotcha 6 — Mac-local commits, scp'd stragglers). First step of any packet touching a remote box: push from the Mac, `git pull` + `git status` on the box, and reconcile stray files.
