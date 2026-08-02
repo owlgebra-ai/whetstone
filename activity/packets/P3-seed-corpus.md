@@ -1,6 +1,6 @@
 # P3 — Seed harvest + seed register corpus
 
-STATUS: blocked — Part 2 needs the ratified card. **P3a is done (activity 004): the verdict is ARM A, `configs/register_card.md`**, subject to two required card edits and user sign-off. Part 1 (seed harvest) is card-independent: runnable NOW.
+STATUS: ready — **card RATIFIED and FILLED 2026-08-02** (`configs/register_card.md`, bake-off winner arm A, required edits applied, tokenizer-audited, 5 exemplars). Parts 1 and 2 both unblocked; use `--mode oneshot` for Part 2 (activity 004).
 MACHINES: turing (all generation); spark for Δlogp scoring pass — NB spark now has TWO venvs (activity 002): `~/git/whetstone/.venv` (CPU-only, data work) and `~/workspace/whetstone-scorer/.venv` (vLLM). The Δlogp pass needs the vLLM one.
 DEPENDS ON: P0, P1, P2 (parser + probe + card)
 BLOCKS: P4 (needs the seed register corpus), Stage A (teacher conditioning corpus)
@@ -50,7 +50,7 @@ Log yield **per level band**. Reference numbers now exist (activity 003 probe, s
 
 ## Gotchas
 
-1. **Vocabulary check before anything else:** tokenize the card's symbol set with the Qwen3 tokenizer and record how each symbol splits (⇒ or ⚠ may be 1–3 tokens). Multi-token symbols are fine but must be handled as id-sequences in P4's R-set; if some symbol tokenizes into >3 pieces, flag it to the user as a candidate to replace in the card (each occurrence taxes the budget).
+1. **Vocabulary check: DONE — card §1.6 records the full audit** (every symbol 1 token in emission contexts; Unicode math ≤ ASCII; card text round-trips losslessly). One live rule remains for this packet: **assert the rendered compression prompt contains zero boundary-token ids** (151667/151668/151643–45) — the literal think-tag strings tokenize as REAL boundary tokens even in prose, which is why card §1.5 avoids writing them; keep it that way in any prompt text you add.
 2. **Keep both think versions.** Stage-A teacher conditioning wants (gold + verbose trace); Round-0 wants compact. Never store compact-only.
 3. **Answer-segment integrity:** assert `verify_response` still passes on every compressed record (same answer text ⇒ must pass). Any failure = the compressor leaked into the answer segment — a hard bug, fix before continuing.
 4. **Disk/paths:** everything under `/data/whetstone/corpora/`; nothing on either root disk.

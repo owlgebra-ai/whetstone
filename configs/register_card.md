@@ -1,13 +1,15 @@
 <!--
-  WHETSTONE v2 — REGISTER CARD  ***DRAFT — AWAITING USER REVIEW***
+  WHETSTONE v2 — REGISTER CARD  ***FILLED — RATIFIED 2026-08-02***
 
-  Staged by packet P2 Part 4; notation spec + exemplars 1–2 DRAFTED BY CLAUDE
-  (2026-08-02) at the user's request — the user reviews and ratifies. THIS FILE
-  IS THE ONE HUMAN DESIGN INPUT IN THE WHOLE PIPELINE (design §1, precondition
-  2): the register is *specified, not discovered*.
+  Staged by packet P2 Part 4; drafted by Claude, validated by the P3a bake-off
+  (activity 004, arm A), ratified by the user. THIS FILE IS THE ONE HUMAN
+  DESIGN INPUT IN THE WHOLE PIPELINE (design §1, precondition 2): the register
+  is *specified, not discovered*.
 
-  P3 IS BLOCKED until the Status line below says FILLED (user flips it after
-  review; exemplars 3–8 are written once the notation is ratified).
+  Any future edit must preserve: zero literal think-tag strings (§1.6), no
+  letter-tag sub-result naming (activity 004 runaway class), un-indented
+  exemplar blocks, and identical elision rules to any variant card being
+  compared against.
 
   Where this file is consumed:
     * P3  — prompted chunkwise compression puts this card in the compressor's
@@ -27,7 +29,7 @@
 
 # Register card — WHETSTONE v2 compact reasoning register
 
-**Status:** DRAFT — notation + exemplars 1–2 drafted by Claude; awaiting user review. NOT yet FILLED.
+**Status:** FILLED — ratified by user 2026-08-02 (bake-off winner, activity 004; required edits applied; tokenizer-audited §1.6; 5 exemplars). Known gap: no true combinatorics exemplar (staged candidate 7 was mislabeled — no verifier-correct combinatorics trace existed under the 12k-char staging cap).
 **Author:** Claude (draft) / ⟨user⟩ (review + ratification)
 **Date:** 2026-08-02
 **Target model:** Qwen3-1.7B (feasibility tier), then Qwen3-4B-Thinking-2507 / Qwen3-8B
@@ -110,8 +112,11 @@ is native in it and the verifier normalizes it. The register compresses the
 - **Case split:** one `case <cond>:` line per branch; every branch **must** end
   in either a result (`⇒ …`) or a rejection (`… ✗`). No silently dropped
   branches — branch elimination is reasoning, and it stays.
-- **Sub-result naming:** tag a line-final value with `(A)`, `(B)`, … and refer
-  back by the bare letter: `hw total 150 (A)` … `180−A=30`.
+- **Sub-result naming:** refer back by **step number** (`from 2:`) or simply
+  restate the value — values are short in this register. (The earlier `(A)`,
+  `(B)` letter-tag scheme is **banned**: the bake-off showed the model exhausts
+  letters and rolls into `AAA`/`BBB` runaway loops — activity 004, 10–18% of
+  traces.)
 - **Units:** drop mid-derivation, restate in the final `⇒` line if the problem
   asks for them.
 
@@ -128,11 +133,29 @@ is native in it and the verifier normalizes it. The register compresses the
 
 ### 1.5 Answer segment
 
-The register governs the **think segment only**. After `</think>` the model must
-still produce a normal, human-readable final answer ending in `\boxed{…}` —
-Stage C holds the answer segment to the original checkpoint with a forward-KL
-term, and the deterministic verifier reads post-`</think>` only. No register
-symbols in the answer segment.
+The register governs the **think segment only**. After the think segment closes,
+the model must still produce a normal, human-readable final answer ending in
+`\boxed{…}` — Stage C holds the answer segment to the original checkpoint with a
+forward-KL term, and the deterministic verifier reads only post-think text. No
+register symbols in the answer segment.
+
+(Deliberately not written with the literal closing tag here: the tag strings
+tokenize as the REAL boundary tokens even in prose — a card containing them
+injects boundary tokens into every prompt it rides in. See §1.6.)
+
+### 1.6 Tokenizer audit (Qwen3-1.7B @ 70d244cc, 2026-08-02)
+
+- Whole-card encode → **zero special/boundary-token injections** (after the
+  §1.5 rewording; before it, the two literal closing-tag strings each encoded
+  as real token 151668). **Rule: no literal think-tag strings anywhere in this
+  file, ever.** Any pipeline step that pastes this card into a prompt should
+  assert the rendered prompt contains no boundary-token ids outside their
+  structural positions.
+- Encode→decode round-trip is lossless — no UTF-8 normalization gotchas.
+- Every §1.1 symbol is **1 token bare, line-start, and after a digit**; ✗ ≈ ² √
+  cost 2 when space-prefixed but occur attached in practice (`b²`, `≈18.4`,
+  `√(340)`). Unicode math ≤ ASCII everywhere (`²`=1 vs `^2`=2). ⚠ (3 tokens
+  spaced) remains banned.
 
 ---
 
@@ -173,12 +196,14 @@ number theory / combinatorics / other).
 
 **Compact-register rewrite:**
 
-    goal: minutes left for project
-    let total=3h → 180
-    1. hw: 45+30=75; +50=125; +25=150 (A)
-    2. left: 180−A=30
-    chk: 150+30=180 ✓
-    ⇒ 30
+```
+goal: minutes left for project
+let total=3h → 180
+1. hw: 45+30=75; +50=125; +25=150
+2. left: 180−150=30
+chk: 150+30=180 ✓
+⇒ 30
+```
 
 Every intermediate sum (75, 125, 150) survives; the double- and triple-checks in
 the verbose trace collapse to one `chk:` line; all self-talk is gone.
@@ -193,38 +218,102 @@ the verbose trace collapse to one `chk:` line; all self-talk is gone.
 
 **Compact-register rewrite:**
 
-    goal: base b?
-    let L=12, R=L+2=14, L+R+b=50
-    1. "right side" = name of third side, or right angle? test both
-    2. case plain triangle: b=50−12−14=24
-    3. case right triangle, legs 12,14: hyp=√(144+196)=√340≈18.4; per≈44.4≠50 ✗
-    4. case hyp=R=14: b²=14²−12²=52; b=√52≈7.2; per≈33.2≠50 ✗
-    ⇒ b=24
-    chk: 12+14+24=50 ✓; R−L=2 ✓
+```
+goal: base b?
+let L=12, R=L+2=14, L+R+b=50
+1. "right side" = name of third side, or right angle? test both
+2. case plain triangle: b=50−12−14=24
+3. case right triangle, legs 12,14: hyp=√(144+196)=√340≈18.4; per≈44.4≠50 ✗
+4. case hyp=R=14: b²=14²−12²=52; b=√52≈7.2; per≈33.2≠50 ✗
+⇒ b=24
+chk: 12+14+24=50 ✓; R−L=2 ✓
+```
 
 Note what was **kept**: the interpretation ambiguity and both rejected branches
 (that *is* the reasoning in this trace — eliding them would be a leap). What was
 dropped: five rounds of re-litigating the same three cases in prose. 7,719 chars
 → ~340 chars with zero steps fused.
 
-### Exemplars 3–8
+### Exemplar 3 (staged candidate 3) — level 3, algebra
 
-⟨PENDING — written after user ratifies §1. Sources: staged candidates 3 (L3
-algebra), 4 (L4), 5 (L5 algebra), 6 (L5 number theory), 7 (L6 combinatorics),
-8 (L6). Note: no level 7–9 candidate exists under the 12k-char staging cap.⟩
+- **_uid:** `deepmath:5ddfa38c` — **gold:** `3`
+- **problem:** How many integers satisfy $(x+3)^2 \leq 1$?
+- **verbose trace:** 8,675 chars — contains a genuine wrong turn (a botched
+  interval) caught by a test value; the register **keeps** that correction.
+
+**Compact-register rewrite:**
+
+```
+goal: # integers with (x+3)²≤1
+1. (x+3)²−1≤0 → (x+2)(x+4)≤0
+2. roots −4, −2; opens up ⇒ −4≤x≤−2
+3. |x+3|≤1 route: −1≤x+3≤1 → −4≤x≤2? chk x=0: (0+3)²=9>1 ✗; fix: subtract 3 both ends → −4≤x≤−2 ✓ agrees with 2
+4. integers in [−4,−2]: −4,−3,−2
+chk: x=−4→1≤1 ✓; x=−3→0 ✓; x=−2→1 ✓; x=−1→4>1 outside ✓
+⇒ 3
+```
+
+### Exemplar 4 (staged candidate 6) — level 5, coordinate geometry / number theory
+
+- **_uid:** `deepmath:1cd7da92` — **gold:** `67`
+- **problem:** R=(8,6) is the midpoint of PQ with P on 8y=15x, Q on 10y=3x;
+  |PQ| = m/n in lowest terms; find m+n.
+- **verbose trace:** 5,790 chars
+
+**Compact-register rewrite:**
+
+```
+goal: |PQ|=m/n, find m+n
+let R=(8,6) midpoint; P=(x1, 15x1/8) on 8y=15x; Q=(x2, 3x2/10) on 10y=3x
+1. x1+x2=16
+2. 15x1/8 + 3x2/10 = 12 → ×40: 75x1+12x2=480
+3. sub x2=16−x1: 75x1+192−12x1=480 → 63x1=288 → x1=288/63=32/7
+4. x2=16−32/7=80/7
+5. y1=(15/8)(32/7)=60/7; y2=(3/10)(80/7)=24/7
+6. Δx=80/7−32/7=48/7; Δy=24/7−60/7=−36/7
+7. |PQ|=√(48²+36²)/7; 2304+1296=3600; √3600=60 → 60/7
+8. gcd(60,7)=1 ⇒ m=60, n=7
+chk: 48²=2304, 36²=1296, sum 3600 ✓
+⇒ 67
+```
+
+### Exemplar 5 (staged candidate 7) — level 6, integral (MCQ)
+
+- **_uid:** `deepmath:697274a5` — **gold:** `B`
+- **problem:** Evaluate $\int_3^4 \sqrt{(x-3)(4-x)}\,dx$ using the x→7−x
+  symmetry; options (a) π/4, (b) π/8, (c) π/2, (d) none.
+- **verbose trace:** 11,724 chars — shows the register handling a dead-end
+  hint exploration, a mini-correction inside a route, two independent
+  cross-checks, and a **letter** answer. (Staged topic label said
+  "combinatorics" — the keyword heuristic misfired; it is an integral.)
+
+**Compact-register rewrite:**
+
+```
+goal: I=∫₃⁴ √((x−3)(4−x)) dx; options: a π/4, b π/8, c π/2, d none
+1. hint y=7−x: limits 3↔4, dx=−dy → I=∫₃⁴ √((4−y)(y−3)) dy = I ⇒ symmetric about x=3.5; I+I=2I gives nothing direct
+2. sub t=x−3: I=∫₀¹ √(t(1−t)) dt
+3. Beta route: not B(2,2) (that is ∫t(1−t)); exponents 1/2 → B(3/2,3/2)=Γ(3/2)²/Γ(3)=(√π/2)²/2=π/8
+4. chk trig route: t=sin²θ → I=2∫₀^{π/2} sin²θcos²θ dθ=(1/4)∫₀^{π/2}(1−cos4θ)dθ=(1/4)(π/2)=π/8 ✓
+5. chk circle route: u=x−3.5 → I=∫ √(1/4−u²) du over [−1/2,1/2] = half-disc r=1/2 = π(1/4)/2=π/8 ✓
+6. π/8 = option b
+⇒ B
+```
 
 ---
 
-## 4. Self-check before flipping Status to FILLED
+## 4. Self-check (completed at FILLED, 2026-08-02)
 
-- [ ] User has reviewed §1 (symbols, markers, shorthand, elision rules) and
-      edited to taste.
-- [ ] Exemplars 3–8 written in the ratified notation; FORMAT DEMO removed (done).
-- [ ] 5–10 exemplars, spanning difficulty bands; ≥1 algebra, ≥1 combinatorics,
-      ≥1 geometry (1–2 give geometry+arithmetic; 3/5 algebra; 7 combinatorics).
-- [ ] Re-read each compact rewrite asking "could a 1.7B model produce the next
-      line from the previous one alone?" — no leaps.
-- [ ] No step's final value was dropped.
-- [ ] §1.1 symbol table matches the symbols actually used in the exemplars.
-- [ ] §2 whitelist matches §1.1.
-- [ ] Card is ~1 page of spec + exemplars.
+- [x] User reviewed and ratified §1 (symbols, markers, shorthand, elision rules).
+- [x] 5 exemplars spanning levels 1–6: arithmetic (1), geometry (2), algebra
+      (3), coordinate geometry (4), integral/MCQ (5). **Combinatorics: none —
+      known gap**, no verifier-correct combinatorics trace under the staging
+      cap; the seed corpus will cover the topic at scale.
+- [x] Each compact rewrite re-read for leaps — every step's value present,
+      self-corrections preserved (ex. 3 step 3, ex. 5 step 3), dead ends kept
+      where they are reasoning (ex. 2 cases 3–4, ex. 5 step 1).
+- [x] §1.1 symbol table matches symbols used in exemplars; letter-tag naming
+      absent (banned, activity 004).
+- [x] §2 whitelist matches §1.1.
+- [x] Tokenizer audit §1.6: zero boundary-token injections, lossless round-trip.
+- [x] Card ≈ 1 page spec + 5 exemplars (rides in the teacher's Stage-A context).
