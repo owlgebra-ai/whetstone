@@ -55,6 +55,11 @@ def parse_args(argv=None):
     ap.add_argument("--model", required=True, help="BASE model id or path")
     ap.add_argument("--max-length", type=int, default=8192)
     ap.add_argument("--device", default="cuda")
+    ap.add_argument("--compact-field", default="compact_think",
+                    help="record field holding the compact think segment")
+    ap.add_argument("--attn", default="sdpa",
+                    help="attn_implementation; flash_attention_2 is not installed "
+                         "on either v2 box")
     ap.add_argument("--keep-only", action="store_true",
                     help="If set, write only passing rows; else annotate all rows")
     return ap.parse_args(argv)
@@ -82,9 +87,9 @@ def main(argv=None):
         tokenizer.pad_token = tokenizer.eos_token
     model = AutoModelForCausalLM.from_pretrained(
         args.model,
-        torch_dtype=torch.bfloat16,
+        dtype=torch.bfloat16,
         trust_remote_code=True,
-        attn_implementation="flash_attention_2",
+        attn_implementation=args.attn,
     ).to(args.device).eval()
 
     seen = _scan_seen(args.output)
@@ -100,7 +105,9 @@ def main(argv=None):
                 continue
 
             q = r.get("prompt", "")
-            compact = r.get("compact", "")
+            # v2 records name the field `compact_think` (the register governs
+            # the think segment only); v1's flat `compact` is still accepted.
+            compact = r.get(args.compact_field) or r.get("compact", "")
             gold = r.get("ground_truth", "")
             if not compact or not gold:
                 continue
