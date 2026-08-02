@@ -1,0 +1,66 @@
+# P3 — Seed harvest + seed register corpus
+
+STATUS: blocked (register card — user input via P2 Part 4)
+MACHINES: turing (all generation); spark for Δlogp scoring pass
+DEPENDS ON: P0, P1, P2 (parser + probe + card)
+BLOCKS: P4 (needs the seed register corpus), Stage A (teacher conditioning corpus)
+DELIVERABLES: verified seed harvest, seed register corpus (~300–1,000 traces), Δlogp-gated, H_pivot pinned from the compact-register entropy histogram.
+
+## Objective
+
+Build the only two corpora that exist before the teacher is trained (design §1, preconditions 3–4): a **small blind seed harvest** (native verbose think traces, verifier-filtered) and the **seed register corpus** (the register card applied once via the v1 prompted-compression machinery). v1's GPU-days harvest is deliberately shrunk to this seed (design §10) — resist any urge to scale it up; the training corpus comes from the Stage-A teacher later, not from here.
+
+## Part 1 — Seed harvest (blind, K=2)
+
+Adapt `scripts/harvest.py` for Qwen3 and run:
+
+- **Subset:** 15% of the train pool (~4,500 problems), stratified by level, fixed seed — write the subset's `_uid` list to `/data/whetstone/corpora/seed/subset_uids.json` first (resume invariance: the subset is defined once, by file, not re-sampled).
+- **Sampling:** K=2, T=0.9, top-p 0.95, `enable_thinking=True`, max_tokens 32768, `max_model_len 34816`.
+- **Blindness is non-negotiable** (v1 §2): no gold in the prompt, no few-shot, no register mention. The harvest prompt is the *same unprivileged eval-style prompt* the student will see forever.
+- Single worker on turing (`--worker_id 0 --n_workers 1`), `gpu_mem 0.90`. Keep the v1 per-line JSONL append + resume-by-`_uid` machinery — a 4-hour run WILL be interrupted at least once; test resume by killing it once on purpose after ~100 problems and restarting (yes, really — log that you did this).
+- **Gemma scrub:** confirm `harvest.py` no longer imports `whetstone.patches.*` and builds prompts via `apply_chat_template`. (P2's probe should have fixed this; verify.)
+
+Then the verifier gate, unchanged:
+
+```bash
+.venv/bin/python scripts/verify_harvest.py --input .../seed_harvest.jsonl --output .../seed_verified.jsonl
+```
+
+Log yield **per level band**. Expectation: 30–60% mid-difficulty, ~10–20% top bands, GSM8K rows much higher. A global yield under ~20% means a template/extraction bug, not a hard pool — stop and compare against the P2 probe numbers before burning more GPU time.
+
+## Part 2 — Seed register corpus (prompted compression, one pass)
+
+`scripts/compress_local_versionB.py` (chunkwise prefill) with the register card:
+
+- **Prompt scaffold:** insert the card's notation spec + exemplars into the compression prompt. The card text is versioned config — reference `configs/register_card.md` at a specific git sha in the output header.
+- **Input:** the verified seed traces (think segments only — the answer segment is copied through *untouched*; compression must never touch post-`</think>` text).
+- **Sampling:** T ∈ [0.3, 0.5] (design wants mild register-internal variance — use 0.4), single completion per trace.
+- **Chunkwise invariant (v1 §3.4):** at depth k the model sees ORIGINAL chunks 1..k + COMPACT chunks 1..k−1 and emits only COMPACT chunk k. Depth-batch across problems for throughput. Verify on 3 hand-inspected examples that chunk alignment survives the Qwen3 template before the bulk run.
+- **Δlogp gate** (`scripts/perplexity_score.py`, v1 §3.6 — its only remaining use in v2):
+  `delta = log P(a* | q, compact) − log P(a* | q)` under frozen Qwen3-1.7B; keep traces with delta above the v1 threshold. Run this scoring pass on **spark** (prefill-only — exactly what the GB10 is for) while turing moves on.
+- **Target:** 300–1,000 accepted traces spanning all level bands. If acceptance is too low, loosen chunk size before touching the Δlogp threshold; if the register itself is the problem (systematically failing on one problem type), that's register-card feedback for the user, not a threshold problem — report it.
+
+**Output:** `/data/whetstone/corpora/seed_register/seed_register.jsonl` with fields: `_uid`, `prompt`, `verbose_think`, `compact_think`, `answer`, `delta_logp`, `level`, provenance (card sha, sampling params).
+
+## Part 3 — Pin H_pivot + build the Round-0 measurement sets
+
+1. Re-run `scripts/entropy_audit.py --traces seed_register.jsonl` (P2 built this mode): compact-register entropy histogram → **H_pivot = its 80th percentile** (design §12.6). Record the number; P4 and Stage B consume it.
+2. Split the seed register corpus **before P4 ever sees it**: `train` (~80%), `heldout_register` (~10%, Round-0 stop-criterion + unit test (a)), `probe_pool` (~10%, reserved for the corrupted-trace probe — these must never appear in training). Fixed seed, stratified by level. Write the three files; P4 is forbidden from re-splitting.
+3. Build the **verbose control set**: ~200 verified *verbose* seed traces (from Part 1, disjoint from the compression inputs' heldout if possible) — Round 0's KL-drift gauge and unit test (b).
+
+## Gotchas
+
+1. **Vocabulary check before anything else:** tokenize the card's symbol set with the Qwen3 tokenizer and record how each symbol splits (⇒ or ⚠ may be 1–3 tokens). Multi-token symbols are fine but must be handled as id-sequences in P4's R-set; if some symbol tokenizes into >3 pieces, flag it to the user as a candidate to replace in the card (each occurrence taxes the budget).
+2. **Keep both think versions.** Stage-A teacher conditioning wants (gold + verbose trace); Round-0 wants compact. Never store compact-only.
+3. **Answer-segment integrity:** assert `verify_response` still passes on every compressed record (same answer text ⇒ must pass). Any failure = the compressor leaked into the answer segment — a hard bug, fix before continuing.
+4. **Disk/paths:** everything under `/data/whetstone/corpora/`; nothing on either root disk.
+5. **This corpus is small on purpose.** ~1k traces is enough for inoculation + teacher conditioning exemplars. Scaling it up re-creates v1's dependency on lucky high-entropy sampling — the thing v2 exists to remove (design §10).
+
+## Definition of done
+
+- [ ] Seed harvest complete with per-level yield table; resume test performed and logged.
+- [ ] Seed register corpus: acceptance rate, size, per-level coverage, 5 hand-inspected examples pasted into the activity file (verbose vs compact, side by side).
+- [ ] Δlogp distribution plot; threshold recorded.
+- [ ] H_pivot pinned and recorded; the three Round-0 splits + verbose control set written.
+- [ ] Symbol-tokenization table recorded.
+- [ ] Scripts committed; activity file `NNN-seed-corpus.md` written; packet status flipped; P4 unblocked.
