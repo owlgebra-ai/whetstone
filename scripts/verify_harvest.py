@@ -13,6 +13,11 @@ import json
 import os
 import sys
 
+# Resolve `whetstone.*` when run as `python scripts/verify_harvest.py` from the
+# repo root, which is how the packet documents it. --data_root stays supported
+# for the v1 layout where the code lived elsewhere.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 
 def parse_args(argv=None):
     ap = argparse.ArgumentParser(description="Stage 1 §2.8 verification filter")
