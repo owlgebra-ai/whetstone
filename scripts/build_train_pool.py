@@ -107,6 +107,11 @@ def load_deepmath(revision: str, limit: int | None = None) -> Iterable[dict]:
         diff = rec.get("difficulty")
         if not prompt or not gold or diff is None:
             continue
+        # DeepMath ships a handful of sentinel difficulties outside [1,10]
+        # (observed: a single -1.0). They would create a bogus level stratum, so
+        # they are dropped rather than clamped.
+        if not (1.0 <= float(diff) <= 10.0):
+            continue
         yield {
             "_uid": uid_for("deepmath", prompt),
             "prompt": prompt,
