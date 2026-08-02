@@ -126,7 +126,13 @@ def main(argv=None):
 
     if args.apply and hits:
         kept = [t for t in train if t["_uid"] not in hit_uids]
-        pre = args.train.replace(".jsonl", ".precontam.jsonl")
+        # Pre-removal copy lives in a `_backup/` subdir, not next to the pool —
+        # downstream code globs `*.jsonl` and must not pick up both versions.
+        backup_dir = os.path.join(os.path.dirname(os.path.abspath(args.train)), "_backup")
+        os.makedirs(backup_dir, exist_ok=True)
+        pre = os.path.join(
+            backup_dir,
+            os.path.basename(args.train).replace(".jsonl", ".precontam.jsonl"))
         if not os.path.exists(pre):
             os.rename(args.train, pre)
         n = write_jsonl(args.train, kept)

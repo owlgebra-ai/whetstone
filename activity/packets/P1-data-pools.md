@@ -1,6 +1,6 @@
 # P1 — Data pools and eval suites (DeepMath-103K + GSM8K, SCA-matched evals)
 
-STATUS: in-progress (activity 002)
+STATUS: done (activity 002)
 MACHINES: spark preferred (CPU work; keeps turing free) — no GPU needed
 DEPENDS ON: P0
 BLOCKS: P2, P3
