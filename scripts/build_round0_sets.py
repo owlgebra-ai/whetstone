@@ -53,9 +53,10 @@ def _level(r: dict) -> str:
 
 
 def _plot_delta(scored: list[dict], threshold: float, path: str) -> dict:
-    deltas = [r["delta_logp"] for r in scored
-              if isinstance(r.get("delta_logp"), (int, float))
-              and r["delta_logp"] != float("-inf")]
+    ok = [r for r in scored
+          if isinstance(r.get("delta_logp"), (int, float))
+          and r["delta_logp"] != float("-inf")]
+    deltas = [r["delta_logp"] for r in ok]
     n_inf = sum(1 for r in scored if r.get("delta_logp") == float("-inf"))
     if not deltas:
         return {"n": 0}
@@ -68,6 +69,26 @@ def _plot_delta(scored: list[dict], threshold: float, path: str) -> dict:
         "mean": sum(s) / len(s),
         "pass_rate": sum(1 for d in s if d > threshold) / len(s),
         "threshold": threshold,
+    }
+
+    # Per-level pass rate. The gate asks whether the compact trace *helps*
+    # predict the gold answer, so it is expected to bite hardest where the
+    # model already knows the answer without any trace — i.e. easy level-1
+    # gsm8k. A gate that silently strips one level band out of the corpus is
+    # register-card feedback, not a threshold to nudge (packet P3 Part 2).
+    by_level: dict[str, dict] = {}
+    for r in ok:
+        lv = str(r.get("level", "_"))
+        b = by_level.setdefault(lv, {"n": 0, "pass": 0, "sum": 0.0})
+        b["n"] += 1
+        b["pass"] += int(r["delta_logp"] > threshold)
+        b["sum"] += r["delta_logp"]
+    stats["by_level"] = {
+        lv: {"n": b["n"], "pass": b["pass"],
+             "pass_rate": round(b["pass"] / b["n"], 4),
+             "mean_delta": round(b["sum"] / b["n"], 3)}
+        for lv, b in sorted(by_level.items(),
+                            key=lambda kv: (kv[0] == "_", kv[0]))
     }
     try:
         import matplotlib
