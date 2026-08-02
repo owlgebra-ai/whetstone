@@ -65,6 +65,7 @@ import argparse
 import hashlib
 import json
 import os
+import random
 import sys
 
 
@@ -262,6 +263,14 @@ def parse_args(argv=None):
                     help="Send no system message at all (Qwen3 needs no <think> "
                          "instruction — it thinks natively).")
     ap.add_argument("--seed", type=int, default=None)
+    ap.add_argument("--shuffle", action="store_true",
+                    help="Deterministically shuffle the submission order "
+                         "(seeded by --seed). Pool files are sorted by _uid, so "
+                         "every problem of one source runs before any problem of "
+                         "the next — 'deepmath:*' before 'gsm8k:*' means no "
+                         "level-1 rollout exists until the run is ~80%% done. "
+                         "Shuffling makes any prefix level-representative, which "
+                         "is what makes an interrupted run still usable.")
     ap.add_argument("--server", default=None,
                     help="Base URL of a running `vllm serve` instance, e.g. "
                          "http://127.0.0.1:8000/v1 . When set, rollouts are "
@@ -465,6 +474,13 @@ def main(argv=None):
     if not problems:
         print("[harvest] nothing to do", flush=True)
         return
+    if args.shuffle:
+        # Seeded and applied to the *remaining* work, so a resume reshuffles
+        # deterministically without ever repeating or skipping a rollout
+        # (resume is a set difference on (uid, k), not a position).
+        random.Random(args.seed if args.seed is not None else 0).shuffle(problems)
+        print("[load] submission order shuffled (level-representative prefix)",
+              flush=True)
     print(f"[load] {len(problems)} rollouts to generate", flush=True)
 
     tokenizer = AutoTokenizer.from_pretrained(args.model, trust_remote_code=True)
