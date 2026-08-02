@@ -29,7 +29,7 @@ Over the seed register corpus **train split**, under the frozen start π_0 (HF f
 
 ## Part 2 — SED kernel (`whetstone/sed.py`, new — shared by Round 0 AND Stage B; write once, test hard)
 
-API sketch: `SEDRegularizer(model, ema_decay=0.99, sync_every=5, tau_range=(1.1, 1.5), topk=512, H_pivot=<from P3>, delta_max=<0.5|0.7 per audit verdict>)` with `.maybe_sync(optimizer_step_idx)` and `.loss(student_logits, input_ids, think_mask)`.
+API sketch: `SEDRegularizer(model, ema_decay=0.99, sync_every=5, tau_range=(1.1, 1.5), topk=512, H_pivot=<from P3>, delta_max=0.7)` with `.maybe_sync(optimizer_step_idx)` and `.loss(student_logits, input_ids, think_mask)`. **Δ_max = 0.7 is pinned — the P2 audit returned a RESTORATION verdict** (activity 003: think median 0.0278 nats, 4.2× below Qwen3-1.7B-Base on identical text).
 
 Implementation rules — each one is a named bug from design §12.4:
 
@@ -56,7 +56,7 @@ Implementation rules — each one is a named bug from design §12.4:
 **Metrics every 20 steps** (the four §7 curves — write to JSONL + a live-updating PNG):
 1. **Held-out register p95 gap ↓** (stop criterion S1): teacher-force the `heldout_register` split through the *trainee*; per think-token `d_t = log p(top1) − log p(actual)`; report p95 over all tokens. S1 fires when p95 < τ_spike.
 2. **Verbose-control KL ↑ slowly** (drift budget S2): mean per-token KL(π_θ ‖ π_0) on the verbose control set (top-512 approximation is fine — same top-512 convention as everywhere). S2 fires at κ_max.
-3. **Entropy median ≈ flat** (floor S3): median per-token entropy on the control set; S3 fires if it drops > x% below the P2 audit baseline.
+3. **Entropy median ≈ flat** (floor S3): median per-token entropy on the control set; S3 fires if it drops > x% below the P2 audit baseline (raw per-token arrays at `/data/whetstone/runs/entropy_audit/per_token_entropy.npz` — compare distributions, not just the median; and note the checkpoint's second entropy mode sits at ≈0.7 nats, so any 1.5-nat "fork" threshold from the design is the wrong knife here, activity 003 finding 3).
 4. **Register-token mean surprisal ↓ to a hum plateau** (the intended effect happening).
 
 **Stopping:** first of S1 / S2 / S3. τ_spike ≈ 4 nats, κ_max and x are *declared placeholders* (design §12.6) — this run's job is to measure and pin them; start with κ_max such that S2 wouldn't fire in the first 40 steps, and x = 10%. **Overshoot signature** (design §7): verbose-control likelihood falling while register p95 keeps dropping past τ_spike → roll back to the checkpoint at the S1 crossing.

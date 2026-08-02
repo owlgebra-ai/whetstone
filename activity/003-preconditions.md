@@ -1,7 +1,7 @@
 # 003 — P2: preconditions (segment parser, entropy audit, calibration probe, register card)
 
 - **Packet:** [packets/P2-preconditions-audit.md](packets/P2-preconditions-audit.md)
-- **Status:** in-progress
+- **Status:** done
 - **Machine(s):** mac (code), turing (all GPU work)
 - **Code commit(s):** `896db9e` → `<this commit>`
 - **Started / finished:** 2026-08-02 → 2026-08-02

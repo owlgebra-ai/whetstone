@@ -1,11 +1,13 @@
 <!--
-  WHETSTONE v2 — REGISTER CARD  ***TEMPLATE — NOT YET FILLED IN***
+  WHETSTONE v2 — REGISTER CARD  ***DRAFT — AWAITING USER REVIEW***
 
-  Staged by packet P2 Part 4. THIS FILE IS THE ONE HUMAN DESIGN INPUT IN THE
-  WHOLE PIPELINE (design §1, precondition 2): the register is *specified, not
-  discovered*. No downstream component is asked to invent it.
+  Staged by packet P2 Part 4; notation spec + exemplars 1–2 DRAFTED BY CLAUDE
+  (2026-08-02) at the user's request — the user reviews and ratifies. THIS FILE
+  IS THE ONE HUMAN DESIGN INPUT IN THE WHOLE PIPELINE (design §1, precondition
+  2): the register is *specified, not discovered*.
 
-  P3 (seed register corpus) IS BLOCKED UNTIL THE TODOs BELOW ARE FILLED IN.
+  P3 IS BLOCKED until the Status line below says FILLED (user flips it after
+  review; exemplars 3–8 are written once the notation is ratified).
 
   Where this file is consumed:
     * P3  — prompted chunkwise compression puts this card in the compressor's
@@ -18,17 +20,16 @@
   The STUDENT never sees this card. The register reaches the student only
   through Stage-B weights.
 
-  HOW TO FILL IT IN: replace every ⟨TODO …⟩ marker. Delete the FORMAT DEMO
-  block once your own exemplars are in — it exists to show the shape of an
-  entry, not to propose a notation. Real pool problems with real verbose
-  traces are staged for you in configs/register_card_exemplars_staged.md.
+  All symbols below were tokenization-checked against Qwen/Qwen3-1.7B
+  @ 70d244cc on 2026-08-02 (bare and space-prefixed). ⚠ and S1:-style markers
+  were REJECTED on token cost (3 tokens spaced); see §1.1 notes.
 -->
 
 # Register card — WHETSTONE v2 compact reasoning register
 
-**Status:** ⟨TODO: change to FILLED when done — P3 checks this line⟩
-**Author:** ⟨TODO⟩
-**Date:** ⟨TODO⟩
+**Status:** DRAFT — notation + exemplars 1–2 drafted by Claude; awaiting user review. NOT yet FILLED.
+**Author:** Claude (draft) / ⟨user⟩ (review + ratification)
+**Date:** 2026-08-02
 **Target model:** Qwen3-1.7B (feasibility tier), then Qwen3-4B-Thinking-2507 / Qwen3-8B
 
 ---
@@ -45,7 +46,7 @@ term `G_spike` punishes (design §3.2): the frozen scorer reads an unfollowable
 jump as a huge top1-vs-actual logprob gap, and the teacher gets driven away from
 it with `β` weight.
 
-Concretely, when writing the exemplars in §3:
+Concretely, when writing exemplars:
 
 - Style must be **executable by a 1.7B model**. Clever-but-dense human shorthand
   poisons Round 0.
@@ -64,154 +65,166 @@ leap.
 
 ## 1. Notation spec
 
-⟨TODO: ~1 page. This is the notation the model is being taught. Be prescriptive
-and exhaustive — ambiguity here shows up as register-internal variance later.⟩
-
 ### 1.1 Symbol vocabulary
 
-Fill in the table. Candidate symbols (design §12.3's structural whitelist starts
-from these — add or remove freely, but record the final set here because it
-becomes the token set R):
+Every symbol below is a **single Qwen3 token both bare and space-prefixed**
+unless noted. Rejected on token cost: `⚠` (3 tokens spaced → replaced by `!`),
+`∴` / `⇔` / `≡` (2 tokens spaced → use `⇒` / words), `S1:` markers (3 tokens).
 
 | Symbol | Means | Example use |
 |---|---|---|
-| `⇒` | ⟨TODO: e.g. "therefore / implies"⟩ | ⟨TODO⟩ |
-| `→` | ⟨TODO: e.g. "rewrite as / substitute"⟩ | ⟨TODO⟩ |
-| `;` | ⟨TODO: e.g. "step separator within a line"⟩ | ⟨TODO⟩ |
-| `✓` | ⟨TODO: e.g. "checked / verified"⟩ | ⟨TODO⟩ |
-| `⚠` | ⟨TODO: e.g. "case needs care / constraint"⟩ | ⟨TODO⟩ |
-| `?` | ⟨TODO: e.g. "unknown / to determine"⟩ | ⟨TODO⟩ |
-| ⟨TODO: add rows⟩ | | |
+| `⇒` | therefore / it follows that (closes a derivation) | `12+14+b=50 ⇒ b=24` |
+| `→` | becomes / evaluates to / rewrite as (one transformation) | `3h → 180min`; `2x+5=19 → 2x=14 → x=7` |
+| `;` | micro-step separator within one line | `45+30=75; +50=125; +25=150` |
+| `✓` | check passed / branch confirmed | `chk: 12+14+24=50 ✓` |
+| `✗` | branch ruled out / check failed (2 tokens after a space — use sparingly, line-end) | `per≈44.4≠50 ✗` |
+| `!` | caution / constraint to respect (replaces ⚠) | `! x≠0` |
+| `?` | value to determine / open subgoal | `base b?` |
+| `case <cond>:` | open a case branch | `case right triangle:` |
+| `chk:` | verification line (exactly one per check — no repeated re-checking) | `chk: 150+30=180 ✓` |
+| `goal:` | compact restatement of the target (first line, optional) | `goal: minutes left` |
+| `let` | variable introduction | `let L=12, R=L+2=14` |
+| `sub` | substitute | `sub x=7: y=3·7−2=19` |
+| `·` `×` `≤` `≥` `≠` `±` `∈` `Δ` `\|` | standard math, all single tokens | — |
+
+LaTeX (`\frac`, `\sqrt`, `\sum`, …) remains legal inside expressions — the model
+is native in it and the verifier normalizes it. The register compresses the
+**prose between the math**, not the math itself.
 
 ### 1.2 Step-marker convention
 
-⟨TODO: how is a step opened? `1.` / `S1:` / bare newline? Do steps renumber per
-case? Note: `whetstone/reward/extract.py` already treats a leading `^\d+\.` as a
-chunk restart, and the v1 reward code counts numbered steps — a numeric marker
-is the cheapest to instrument.⟩
+- **One step per line.** The newline is the step boundary.
+- **Top-level steps are numbered `1.` `2.` `3.` at line start** (2 tokens each;
+  `whetstone/reward/extract.py` treats leading `^\d+\.` as a chunk boundary, and
+  the v1 reward code counts numbered steps — numeric markers are the cheapest to
+  instrument). Numbering does **not** restart inside a case.
+- Short auxiliary lines (`goal:`, `let`, `chk:`, `case …:`) are unnumbered.
+- Micro-steps inside a line are separated by `;`.
 
 ### 1.3 Equation-manipulation shorthand
 
-⟨TODO: how is "multiply both sides by 3" written? How is substitution written?
-How is a case split opened and closed? How is a sub-result named and referred
-back to?⟩
+- **Transformation chains** use `→` with at most one operation per arrow:
+  `2x+5=19 → 2x=14 → x=7`. Annotate the operation in parentheses only when it
+  is not obvious: `x²=52 → x=√52 (x>0)`.
+- **Substitution:** `sub <binding>: <resulting expression>`.
+- **Case split:** one `case <cond>:` line per branch; every branch **must** end
+  in either a result (`⇒ …`) or a rejection (`… ✗`). No silently dropped
+  branches — branch elimination is reasoning, and it stays.
+- **Sub-result naming:** tag a line-final value with `(A)`, `(B)`, … and refer
+  back by the bare letter: `hw total 150 (A)` … `180−A=30`.
+- **Units:** drop mid-derivation, restate in the final `⇒` line if the problem
+  asks for them.
 
 ### 1.4 What may be elided vs never elided
 
 | May be elided | Never elided |
 |---|---|
-| ⟨TODO⟩ | Final numeric/symbolic result of each step |
-| ⟨TODO⟩ | ⟨TODO⟩ |
+| Problem restatement, "understanding the problem" prose | Final numeric/symbolic result of each step |
+| Hedging and self-talk ("Wait", "Let me double-check", "Hmm") | Every intermediate value in a derivation chain |
+| Repeated re-derivations of the same arithmetic (keep exactly one `chk:` line) | Case branches and their verdicts (✓ result or ✗ rejection) |
+| Verbal description of an equation that is written on the next line | Variable definitions (`let` lines) |
+| Transitional prose ("Now let's move on to…") | The single verification `chk:` of the final answer |
+| Markdown headers, bold, display-math scaffolding | Constraint notes (`! …`) that later steps depend on |
 
 ### 1.5 Answer segment
 
 The register governs the **think segment only**. After `</think>` the model must
 still produce a normal, human-readable final answer ending in `\boxed{…}` —
 Stage C holds the answer segment to the original checkpoint with a forward-KL
-term, and the deterministic verifier reads post-`</think>` only.
-
-⟨TODO: confirm / add any answer-segment convention you want.⟩
+term, and the deterministic verifier reads post-`</think>` only. No register
+symbols in the answer segment.
 
 ---
 
 ## 2. Structural whitelist for R (auto-derived, confirm here)
 
 The Round-0 register-token set R = {types with mean surprisal > 75th pct AND
-across-occurrence std < median} ∪ **structural whitelist**. The whitelist is the
-symbols from §1.1 plus step markers.
+across-occurrence std < median} ∪ **structural whitelist**. P4's
+`build_register_tokenset.py` tokenizes the literal strings below (bare AND
+space-prefixed) against Qwen3's vocab and dumps the ids.
 
-⟨TODO: after §1.1 is final, list the exact literal strings here. P4 tokenizes
-this list against Qwen3's vocab and dumps the ids.⟩
+```
+⇒  →  ;  ✓  ✗  !  ?  ·  ≤  ≥  ≠  ±  ∈  Δ
+case  chk  goal  let  sub
+1.  2.  3.  4.  5.  6.  7.  8.  9.
+```
+
+Reference ids (Qwen3-1.7B @ 70d244cc, bare/spaced): `⇒`=144016/58703,
+`→`=51018/11397, `✓`=143617/52375, `;`=26/2587, `?`=30/937, `!`=0/753,
+`case`=5638/1142, `chk`=35896/39242, `sub`=1966/1186. P4 re-derives — these are
+recorded for drift detection, not consumed.
 
 ---
 
 ## 3. Exemplars
 
-5–10 pairs, one per difficulty band, **at least one algebra, one combinatorics,
-one geometry**. Real problems from the pool.
+Verbose sides are the model's own verifier-correct traces, staged in
+[`register_card_exemplars_staged.md`](register_card_exemplars_staged.md).
+Exemplars 1–2 below are **drafts for review**; 3–8 are written after the
+notation is ratified (candidates 3–8 in the staged file: levels 3–6, algebra /
+number theory / combinatorics / other).
 
-Real pool problems with the model's own real verbose think traces are staged in
-[`register_card_exemplars_staged.md`](register_card_exemplars_staged.md) — they
-are the raw material for these slots. Use them (or pick your own from
-`/data/whetstone/data/pool/train_30k.jsonl`), and write the COMPACT side.
+### Exemplar 1 (staged candidate 2) — level 1, arithmetic
 
-<!-- ============ FORMAT DEMO — DELETE ONCE YOUR EXEMPLARS ARE IN ============
-     This shows the SHAPE of an entry. The notation used is a placeholder,
-     NOT a design proposal.
-
-### Exemplar 0 — FORMAT DEMO (delete me)
-
-- **_uid:** `gsm8k:00000000`
-- **level:** 1
-- **topic:** arithmetic
-- **problem:** A shop sells pens at $3 each. Ann buys 7 and pays with a $50 note.
-  How much change does she get?
-
-**Verbose think trace (as emitted by the model):**
-
-    Okay, so Ann is buying pens. Each pen costs $3, and she buys 7 of them.
-    So first I need to find the total cost. That would be 3 times 7. Let me
-    compute that: 3 * 7 = 21. So the pens cost $21 in total. Now, she pays
-    with a $50 note, so the change is 50 minus 21. Let me compute: 50 - 21 = 29.
-    So she gets $29 in change. Let me double check: 7 pens at $3 is 21, and
-    50 - 21 is 29. Yes, that's right.
+- **_uid:** `gsm8k:97f4db57` — **gold:** `30`
+- **problem:** Porche has 3 hours for homework: math 45 min, English 30, science
+  50, history 25, plus a special project. How much time is left for the project?
+- **verbose trace:** 1,600 chars (staged file, candidate 2)
 
 **Compact-register rewrite:**
 
-    1. cost = 3·7 = 21
-    2. change = 50 − 21 = 29 ✓
+    goal: minutes left for project
+    let total=3h → 180
+    1. hw: 45+30=75; +50=125; +25=150 (A)
+    2. left: 180−A=30
+    chk: 150+30=180 ✓
+    ⇒ 30
 
-Note what happened: every *value* survived (21, 29); only the prose around them
-was dropped. No step was fused.
-============================ END FORMAT DEMO ============================= -->
+Every intermediate sum (75, 125, 150) survives; the double- and triple-checks in
+the verbose trace collapse to one `chk:` line; all self-talk is gone.
 
-### Exemplar 1
+### Exemplar 2 (staged candidate 1) — level 1, geometry
 
-- **_uid:** ⟨TODO⟩
-- **level:** ⟨TODO⟩
-- **topic:** ⟨TODO — algebra / combinatorics / geometry / number theory / …⟩
-- **problem:** ⟨TODO⟩
-
-**Verbose think trace:**
-
-    ⟨TODO⟩
-
-**Compact-register rewrite:**
-
-    ⟨TODO⟩
-
-### Exemplar 2
-
-- **_uid:** ⟨TODO⟩
-- **level:** ⟨TODO⟩
-- **topic:** ⟨TODO⟩
-- **problem:** ⟨TODO⟩
-
-**Verbose think trace:**
-
-    ⟨TODO⟩
+- **_uid:** `gsm8k:87f4cb6f` — **gold:** `24`
+- **problem:** Triangle perimeter 50; right side 2 cm longer than left; left =
+  12 cm. Find the base.
+- **verbose trace:** 7,719 chars (staged file, candidate 1 — mostly spent
+  resolving whether "right side" implies a right triangle)
 
 **Compact-register rewrite:**
 
-    ⟨TODO⟩
+    goal: base b?
+    let L=12, R=L+2=14, L+R+b=50
+    1. "right side" = name of third side, or right angle? test both
+    2. case plain triangle: b=50−12−14=24
+    3. case right triangle, legs 12,14: hyp=√(144+196)=√340≈18.4; per≈44.4≠50 ✗
+    4. case hyp=R=14: b²=14²−12²=52; b=√52≈7.2; per≈33.2≠50 ✗
+    ⇒ b=24
+    chk: 12+14+24=50 ✓; R−L=2 ✓
 
-### Exemplar 3
+Note what was **kept**: the interpretation ambiguity and both rejected branches
+(that *is* the reasoning in this trace — eliding them would be a leap). What was
+dropped: five rounds of re-litigating the same three cases in prose. 7,719 chars
+→ ~340 chars with zero steps fused.
 
-⟨TODO — repeat the block. Aim for 5–10 total, spanning the difficulty bands
-present in the pool (levels 1, 4–5, 6–7, 8–9; note levels 2–3 and 10 are nearly
-empty in DeepMath — see activity 002 note 1).⟩
+### Exemplars 3–8
+
+⟨PENDING — written after user ratifies §1. Sources: staged candidates 3 (L3
+algebra), 4 (L4), 5 (L5 algebra), 6 (L5 number theory), 7 (L6 combinatorics),
+8 (L6). Note: no level 7–9 candidate exists under the 12k-char staging cap.⟩
 
 ---
 
-## 4. Self-check before handing this back
+## 4. Self-check before flipping Status to FILLED
 
-- [ ] Every ⟨TODO⟩ replaced; FORMAT DEMO block deleted.
-- [ ] 5–10 exemplars, spanning difficulty bands.
-- [ ] At least one algebra, one combinatorics, one geometry.
+- [ ] User has reviewed §1 (symbols, markers, shorthand, elision rules) and
+      edited to taste.
+- [ ] Exemplars 3–8 written in the ratified notation; FORMAT DEMO removed (done).
+- [ ] 5–10 exemplars, spanning difficulty bands; ≥1 algebra, ≥1 combinatorics,
+      ≥1 geometry (1–2 give geometry+arithmetic; 3/5 algebra; 7 combinatorics).
 - [ ] Re-read each compact rewrite asking "could a 1.7B model produce the next
       line from the previous one alone?" — no leaps.
 - [ ] No step's final value was dropped.
-- [ ] Symbol table in §1.1 matches the symbols actually used in the exemplars
-      (a symbol that appears only in the exemplars will not be in R).
-- [ ] Card is ~1 page of spec + exemplars — it rides in the teacher's context
-      on every Stage-A rollout.
+- [ ] §1.1 symbol table matches the symbols actually used in the exemplars.
+- [ ] §2 whitelist matches §1.1.
+- [ ] Card is ~1 page of spec + exemplars.

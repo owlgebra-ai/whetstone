@@ -1,7 +1,8 @@
 # Packet roadmap — WHETSTONE v2 feasibility tier (Qwen3-1.7B on turing + spark)
 
 ```
-P0 env ──► P1 data ──► P2 preconditions ──► P3 seed corpus ──► P4 Round 0 ══► F1 gate
+P0 env ──► P1 data ──► P2 preconditions ──► P3a register bake-off ──► P3 seed corpus ──► P4 Round 0 ══► F1 gate
+                                            (P3 Part 1 seed harvest may run in parallel with P3a)
                                                                               │
                                             PASS ◄────────────────────────────┘──► FAIL → LoRA-scorer packet
                                              │
@@ -49,6 +50,22 @@ Only **P0–P4 are written in full detail**. P5–P7 are deliberately outlines: 
 - Reproduce **SCA** and **DeepCompress** from the same Qwen3-1.7B checkpoint (design §6 — mandatory), plus the prompted-compressor-only arm.
 - HumanEval code-execution grader (sandboxed) — P1 marked it `grading: code-exec-pending`.
 - Headline decomposition reporting: (trim within verbose register) × (register change) as separate factors; segment-level lengths everywhere.
+
+## Eval plan (user-ratified 2026-08-02)
+
+Suite roles — three tiers with different touch frequencies, so headline numbers can't be overfit by repeated peeking:
+
+| Tier | Suites | When run |
+|---|---|---|
+| **Primary (headline tables)** | MATH-500, AMC23, MinervaMath, AIME24, AIME25 | Stage gates (F2–F4) and final reporting only |
+| **Validation** | **GSM8K test split** (1,319 problems) | Checkpoint selection, hyperparameter decisions, phase endpoints |
+| **Internal continuity** | `standard_eval_300` (frozen) | Every checkpoint, cheap mode allowed |
+| **Cross-domain secondary (SCA-matched)** | GPQA-Diamond; HumanEval (once the P8 code-exec grader exists) | Final reporting alongside SCA's published numbers |
+
+- **Protocol (design §12.7, wired into `run_eval.py` by P2):** N=8, T=0.7, top-p 0.95, max_tokens 32768, `enable_thinking=True`; report Pass@1 ± seed std with **think and answer lengths as separate columns**, answer-segment-only quality. Qwen-recommended sampling (T=0.6) reported once in an appendix.
+- Small suites (AIME 30, AMC 40) are noisy — never quote them without the ± std, never subsample them.
+- **TODO (next executing agent, ~30 min on spark):** `gsm8k_test.jsonl` is not yet built — add the suite to `build_eval_sets.py` (`openai/gsm8k` config `main`, split `test`, same schema, pin revision) and emit to `/data/whetstone/eval/`. Contamination pre-cleared: activity 002 Run 5 checked the train pool against GSM8K-test — 0 hits.
+- Baselines (SCA / DeepCompress / prompted-compressor arms) run the identical protocol from the same checkpoint — numbers are only comparable inside the same tier and protocol.
 
 ## Standing rules for every future packet
 

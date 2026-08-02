@@ -1,6 +1,6 @@
 # P3 — Seed harvest + seed register corpus
 
-STATUS: blocked (register card — user input via P2 Part 4)
+STATUS: blocked — Part 2 needs the ratified card (P3a bake-off verdict + user sign-off decides between configs/register_card.md (A), register_card_caveman.md (B), or a hybrid). Part 1 (seed harvest) is card-independent: runnable NOW, in parallel with P3a.
 MACHINES: turing (all generation); spark for Δlogp scoring pass — NB spark now has TWO venvs (activity 002): `~/git/whetstone/.venv` (CPU-only, data work) and `~/workspace/whetstone-scorer/.venv` (vLLM). The Δlogp pass needs the vLLM one.
 DEPENDS ON: P0, P1, P2 (parser + probe + card)
 BLOCKS: P4 (needs the seed register corpus), Stage A (teacher conditioning corpus)
@@ -26,13 +26,13 @@ Then the verifier gate, unchanged:
 .venv/bin/python scripts/verify_harvest.py --input .../seed_harvest.jsonl --output .../seed_verified.jsonl
 ```
 
-Log yield **per level band**. Expectation: 30–60% mid-difficulty, ~10–20% top bands, GSM8K rows much higher. A global yield under ~20% means a template/extraction bug, not a hard pool — stop and compare against the P2 probe numbers before burning more GPU time.
+Log yield **per level band**. Reference numbers now exist (activity 003 probe, same sampling config, no system prompt): **73% overall at K=2 on 50 problems**, U-shaped per level (86% level 1, ~56% level 5, 50% level 9). Expect the bulk harvest to land ~3 points *under* the probe (known extraction-shape losses — unit suffixes, `$$` blocks; activity 003 finding 9). Substantially below that means a real bug — stop and compare per-level against the probe table before burning more GPU time. Also confirmed by P2: run with **no system prompt** (now the default; the v1 prompt costs 8 accuracy points and causes 6% gate failures) and `--prefill_think` stays False (now the default; True would gate out 100%).
 
 ## Part 2 — Seed register corpus (prompted compression, one pass)
 
 `scripts/compress_local_versionB.py` (chunkwise prefill) with the register card:
 
-- **Prompt scaffold:** insert the card's notation spec + exemplars into the compression prompt. The card text is versioned config — reference `configs/register_card.md` at a specific git sha in the output header.
+- **Prompt scaffold:** use P3a's pinned neutral scaffold (`--card <ratified card>` — the card is the only register authority in the prompt; the v1 hardcoded SYSTEM_PROMPT is retired, see P3a "Pinned compression prompt"). The card text is versioned config — record its git sha and the rendered-prompt sha in the output header. `enable_thinking=False` on the compressor call is deliberate (prefill-trick rewrite, the one standing-rule exception).
 - **Input:** the verified seed traces (think segments only — the answer segment is copied through *untouched*; compression must never touch post-`</think>` text).
 - **Sampling:** T ∈ [0.3, 0.5] (design wants mild register-internal variance — use 0.4), single completion per trace.
 - **Chunkwise invariant (v1 §3.4):** at depth k the model sees ORIGINAL chunks 1..k + COMPACT chunks 1..k−1 and emits only COMPACT chunk k. Depth-batch across problems for throughput. Verify on 3 hand-inspected examples that chunk alignment survives the Qwen3 template before the bulk run.
@@ -44,7 +44,7 @@ Log yield **per level band**. Expectation: 30–60% mid-difficulty, ~10–20% to
 
 ## Part 3 — Pin H_pivot + build the Round-0 measurement sets
 
-1. Re-run `scripts/entropy_audit.py --traces seed_register.jsonl` (P2 built this mode): compact-register entropy histogram → **H_pivot = its 80th percentile** (design §12.6). Record the number; P4 and Stage B consume it.
+1. Re-run `scripts/entropy_audit.py --traces seed_register.jsonl --completion_field <field> --out_dir /data/whetstone/runs/entropy_audit_compact` (P2 built this mode — exact invocation in activity 003): compact-register entropy histogram → **H_pivot = its 80th percentile** (design §12.6). Record the number; P4 and Stage B consume it. For calibration: native-trace think p80 was 0.6923 (reference only, NOT H_pivot).
 2. Split the seed register corpus **before P4 ever sees it**: `train` (~80%), `heldout_register` (~10%, Round-0 stop-criterion + unit test (a)), `probe_pool` (~10%, reserved for the corrupted-trace probe — these must never appear in training). Fixed seed, stratified by level. Write the three files; P4 is forbidden from re-splitting.
 3. Build the **verbose control set**: ~200 verified *verbose* seed traces (from Part 1, disjoint from the compression inputs' heldout if possible) — Round 0's KL-drift gauge and unit test (b).
 
