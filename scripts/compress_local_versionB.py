@@ -495,7 +495,8 @@ def _write_checkpoint(output: str, problems: list[dict], tokenizer, meta: dict) 
     return done
 
 
-def _run_oneshot_server(args, problems, tokenizer, system_prompt, meta) -> int:
+def _run_oneshot_server(args, problems, tokenizer, system_prompt, meta,
+                        demo_index: dict | None = None) -> int:
     """One-shot compression against a resident ``vllm serve``, appending as it goes.
 
     The offline path below submits every problem in a single
@@ -511,6 +512,7 @@ def _run_oneshot_server(args, problems, tokenizer, system_prompt, meta) -> int:
     """
     import time
 
+    demo_index = demo_index or {}
     dropped = repair_tail(args.output)
     if dropped:
         print(f"[resume] repaired torn tail: dropped {dropped} B", flush=True)
@@ -812,7 +814,8 @@ def main(argv=None):
             raise SystemExit("[compress] --server supports --mode oneshot only")
         print(f"[compress] server mode: {args.server}, "
               f"{args.concurrency} in flight", flush=True)
-        n = _run_oneshot_server(args, problems, tokenizer, system_prompt, meta)
+        n = _run_oneshot_server(args, problems, tokenizer, system_prompt, meta,
+                                demo_index)
         _finalize(args, meta, n)
         return
 
