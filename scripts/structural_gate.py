@@ -134,6 +134,17 @@ def main() -> int:
     ap.add_argument("--calibrate", action="store_true",
                     help="print feature distributions and exit — use this to "
                          "choose thresholds before applying any")
+    ap.add_argument("--require_branch", action="store_true",
+                    help="Gate on branch_kept. OFF by default: the source-side "
+                         "detector fires on 99.5%% of verbose traces (this model "
+                         "says 'wait'/'actually' constantly, even on trivial "
+                         "arithmetic), so the check collapses from 'kept the "
+                         "branch its source had' into 'contains case/✗' — an "
+                         "unconditional notation requirement. Gating on it "
+                         "rejects 60%% of the best corpus and biases what "
+                         "survives toward branchy problems. It stays a corpus-"
+                         "level diagnostic (39.9%% vs 3.1%% between compressors) "
+                         "until the source detector is tightened.")
     ap.add_argument("--min_value_coverage", type=float, default=0.6)
     ap.add_argument("--max_invented_frac", type=float, default=1.0,
                     help="DIAGNOSTIC ONLY by default (1.0 = disabled). Audited "
@@ -175,12 +186,13 @@ def main() -> int:
     out = []
     for r, f in zip(rows, feats):
         checks = {
-            "branch_kept": f["branch_kept"],
             "verify_kept": f["verify_kept"],
             "value_coverage": f["value_coverage"] >= args.min_value_coverage,
             "no_invention": f["invented_frac"] <= args.max_invented_frac,
             "length_floor": f["lines_per_step"] >= args.min_lines_per_step,
         }
+        if args.require_branch:
+            checks["branch_kept"] = f["branch_kept"]
         ok = all(checks.values())
         n_pass += ok
         for k, v in checks.items():
