@@ -69,11 +69,49 @@ VARIANTS = {
 }
 
 
+EXEMPLAR_TMPL = """
+### Exemplar {n} (long trace) — level {level}, {ntok:,}-token original
+
+- **_uid:** `{uid}` — **gold:** `{gold}`
+- **verbose trace:** {ntok:,} tokens. Note the rewrite is **{lines} lines** — a
+  faithful compression of a long derivation is itself long. Every case tried,
+  every rejection (`✗`), and every self-correction (`!`) survives.
+
+**Compact-register rewrite:**
+
+```
+{body}
+```
+"""
+
+
+def _append_exemplars(text: str, exemplars: list[dict]) -> str:
+    """Append long-trace exemplars to the end of §3, before §4."""
+    n_existing = len(re.findall(r"(?m)^### Exemplar \d+", text))
+    blocks = "".join(
+        EXEMPLAR_TMPL.format(n=n_existing + i + 1, level=e.get("level"),
+                             uid=e["_uid"], gold=e.get("ground_truth", ""),
+                             ntok=e["verbose_think_tokens"],
+                             lines=e["exemplar_lines"], body=e["exemplar"])
+        for i, e in enumerate(exemplars))
+    m = re.search(r"(?m)^---\n\n## 4\.", text)
+    if not m:
+        raise SystemExit("[variants] §4 boundary not found; cannot append exemplars")
+    return text[:m.start()] + blocks + "\n" + text[m.start():]
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--card", default="configs/register_card.md")
     ap.add_argument("--out_dir", required=True)
+    ap.add_argument("--glm_exemplars", default=None,
+                    help="glm_exemplars.jsonl — adds an F_glm_exemplars arm "
+                         "testing whether long-trace exemplars beat a rule")
+    ap.add_argument("--glm_max_chars", type=int, default=2500,
+                    help="skip candidate exemplars larger than this; the card "
+                         "rides in the Stage-A teacher context, so size is a "
+                         "real recurring cost")
     args = ap.parse_args()
 
     base = open(args.card).read()
@@ -81,10 +119,33 @@ def main() -> int:
         raise SystemExit("[variants] §1.4 table anchor not found — the card "
                          "changed shape; update ANCHOR before trusting an A/B.")
 
+    variants = dict(VARIANTS)
+    glm: list[dict] = []
+    if args.glm_exemplars:
+        with open(args.glm_exemplars) as f:
+            cands = [json.loads(l) for l in f if l.strip()]
+        for e in cands:
+            if e.get("has_boxed") or e.get("has_fence"):
+                print(f"[skip] {e['_uid']}: card §1.5 violation in candidate")
+                continue
+            if e["exemplar_chars"] > args.glm_max_chars:
+                print(f"[skip] {e['_uid']}: {e['exemplar_chars']} chars "
+                      f"> --glm_max_chars {args.glm_max_chars}")
+                continue
+            glm.append(e)
+        if not glm:
+            raise SystemExit("[variants] no usable GLM exemplars")
+        variants["F_glm_exemplars"] = None      # sentinel: appended, not inserted
+        print(f"[glm] using {len(glm)} exemplars "
+              f"(+{sum(e['exemplar_chars'] for e in glm)} chars)")
+
     os.makedirs(args.out_dir, exist_ok=True)
     meta = {}
-    for name, block in VARIANTS.items():
-        text = base if not block else ANCHOR.sub(r"\1" + block, base, count=1)
+    for name, block in variants.items():
+        if block is None:
+            text = _append_exemplars(base, glm)
+        else:
+            text = base if not block else ANCHOR.sub(r"\1" + block, base, count=1)
         path = os.path.join(args.out_dir, f"{name}.md")
         with open(path, "w") as f:
             f.write(text)
