@@ -582,11 +582,31 @@ register numbers its steps, so a longer — i.e. more faithful — rewrite
 mechanically introduces more integers. After stripping step markers both medians
 are 0.0 and the ordering is sane.
 
-**Honest mark against the GLM corpus:** even after the fix its p90
-`invented_frac` is 0.318 against Qwen3's 0.077 — it introduces more numerals
-absent from the source in the tail. That may be legitimate (it re-derives
-arithmetic the verbose trace only gestured at) or light confabulation. Flagged
-for audit; not disqualifying.
+**RETRACTED: the "mark against the GLM corpus" was my measurement, not the
+corpus.** I reported p90 `invented_frac` 0.318 vs 0.077 as evidence GLM
+confabulates numerals. Audited, and it does not hold:
+
+* `_nums` stripped commas globally to handle thousands separators, which fused
+  the register's own step back-references — `from 4,5:` became the numeral
+  **45**, `from 6,9` became **69**. Fixing that drops GLM's p90 from 0.318 to
+  **0.214**. The artifact scales with how much derivation structure a rewrite
+  shows, so it penalised precisely the traces it should reward;
+* the residual is not confabulation either. The two worst survivors are an
+  abstract-algebra trace whose only numerals are `-1` from `S^{-1}A`, `1` from
+  `{1,f,f²,…}` and step cross-references (a problem with no numbers scores worst
+  by construction), and a trace that **builds a concrete counterexample to check
+  itself** — `use (0,0.49),(0.51,1) → Σμ=0.98>0.5 ✓` — which is work we want.
+
+`invented_frac` is therefore **demoted to a diagnostic** (`--max_invented_frac`
+defaults to 1.0, disabled). It penalises abstract problems, step
+cross-references, and self-checking by concrete instance. The gate's real
+checks are `branch_kept`, `verify_kept` and `value_coverage`.
+
+**Four times in this packet a numeral-extraction confound produced a false
+finding** (37% "invented" in the ad-hoc probe → step numbers; the gate's first
+draft → step numbers again; then comma-fusion; then notation-vs-content). Each
+one initially read as a substantive result. Worth treating any numeral-derived
+metric here as guilty until audited.
 
 **Thresholds are not pinned yet.** `branch_kept` at 39.9% even on the best
 corpus means requiring it would reject 60% of it — so it is reported, not gated.

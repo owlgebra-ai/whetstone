@@ -135,7 +135,15 @@ def main() -> int:
                     help="print feature distributions and exit — use this to "
                          "choose thresholds before applying any")
     ap.add_argument("--min_value_coverage", type=float, default=0.6)
-    ap.add_argument("--max_invented_frac", type=float, default=0.5)
+    ap.add_argument("--max_invented_frac", type=float, default=1.0,
+                    help="DIAGNOSTIC ONLY by default (1.0 = disabled). Audited "
+                         "on the GLM corpus: the numerals it flags are notation "
+                         "(`S^{-1}`, `{1,f,f²}`), step cross-references "
+                         "(`from 4,5:`), or concrete counterexamples the rewrite "
+                         "constructs to check itself — the last of which is work "
+                         "we want. It also scores abstract problems worst simply "
+                         "because they contain few numbers. Set < 1.0 only with "
+                         "evidence from your own corpus.")
     ap.add_argument("--min_lines_per_step", type=float, default=0.0,
                     help="0 disables; set from --calibrate output")
     args = ap.parse_args()
