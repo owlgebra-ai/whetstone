@@ -611,6 +611,17 @@ def main() -> int:
     report = aggregate(scored, compare)
     report["config"] = vars(args)
     report["traces"] = scored["meta"]
+    if args.traces:
+        # Machine-readable, so P4 reads the pinned number instead of
+        # re-deriving a percentile and hoping it picked the same segment.
+        report["h_pivot"] = {
+            "value": report["think"]["p80"],
+            "recipe": "p80 of the think-segment entropy histogram (design §12.6)",
+            "source_traces": args.traces,
+            "completion_field": args.completion_field,
+            "n_think_tokens": report["think"]["n"],
+            "model": args.model,
+        }
     with open(json_path, "w") as f:
         json.dump(report, f, indent=1)
     pngs = make_plots(report, args.out_dir)
@@ -641,15 +652,35 @@ def main() -> int:
     print(f"  sanity: median entropy of the </think> token itself = {be['median']}"
           "   (should be LOW; if high, suspect an off-by-one)")
     print()
-    print(f"VERDICT: {v['mode'].upper()}   ->  Stage-B Delta_max = {v['delta_max']}")
-    for k, hit in v["checks"].items():
-        print(f"    [{'X' if hit else ' '}] {k}")
-    print(f"    ({v['n_checks_triggered']} triggered; {v['rule']})")
-    print()
-    print("NOTE: H_pivot is NOT set here. It is the 80th percentile of the "
-          "COMPACT-REGISTER histogram; re-run with --traces on the P3 seed corpus.")
-    print(f"      (p80 of this native-trace think histogram, for reference only: "
-          f"{report['think']['p80']:.4f})")
+    if args.traces:
+        # In --traces mode the think histogram IS the corpus's own histogram,
+        # so p80 is the H_pivot candidate rather than a reference number. The
+        # preservation/restoration verdict is deliberately not printed here: it
+        # is a property of the *checkpoint*, decided once by the P2 audit over
+        # native rollouts, and re-deciding it from a register corpus would be
+        # reading a different distribution as if it were the same one.
+        print(f"H_pivot  = {report['think']['p80']:.4f} nats"
+              "   (p80 of the think histogram of --traces; design §12.6)")
+        print(f"           source: {args.traces}")
+        print(f"           n_think_tokens={report['think']['n']:,}, "
+              f"median={report['think']['p50']:.4f}")
+        print("           P4 and Stage B consume this number — record it.")
+        print()
+        print("NOTE: preservation-vs-restoration is NOT re-decided here; that is "
+              "a property of the checkpoint,")
+        print("      fixed by the P2 audit over native rollouts "
+              "(activity 003: RESTORATION, Delta_max = 0.7).")
+    else:
+        print(f"VERDICT: {v['mode'].upper()}   ->  Stage-B Delta_max = {v['delta_max']}")
+        for k, hit in v["checks"].items():
+            print(f"    [{'X' if hit else ' '}] {k}")
+        print(f"    ({v['n_checks_triggered']} triggered; {v['rule']})")
+        print()
+        print("NOTE: H_pivot is NOT set here. It is the 80th percentile of the "
+              "COMPACT-REGISTER histogram; re-run with --traces on the P3 seed "
+              "corpus.")
+        print(f"      (p80 of this native-trace think histogram, for reference "
+              f"only: {report['think']['p80']:.4f})")
     print()
     print(f"artifacts: {json_path}")
     for p in pngs:
