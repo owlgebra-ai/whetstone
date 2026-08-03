@@ -86,15 +86,25 @@ EXEMPLAR_TMPL = """
 
 
 def _drop_exemplars_from(text: str, first: int) -> str:
-    """Remove `### Exemplar N` sections with N >= ``first`` (in-place, §3 only)."""
+    """Remove `### Exemplar N` sections with N >= ``first``.
+
+    Splitting on `### Exemplar N` gives each section a body running to the next
+    such heading — so the *last* exemplar's body runs to end-of-file and carries
+    every following top-level section with it (§4, and the `---` rule before
+    it). Dropping it naively deletes those too. Any trailing `## ` section found
+    inside a dropped body is therefore re-attached.
+    """
     if first <= 0:
         return text
     parts = re.split(r"(?m)^(### Exemplar (\d+).*)$", text)
     out = [parts[0]]
     for head, num, body in zip(parts[1::3], parts[2::3], parts[3::3]):
-        if int(num) >= first:
+        if int(num) < first:
+            out.append(head + body)
             continue
-        out.append(head + body)
+        tail = re.search(r"(?m)^(?:---\n+)?^## ", body)
+        if tail:                      # keep whatever followed this exemplar
+            out.append(body[tail.start():])
     return "".join(out)
 
 
