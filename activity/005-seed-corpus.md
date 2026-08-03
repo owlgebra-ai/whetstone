@@ -763,6 +763,247 @@ quantified: **+4 points of verify rate, not just +9 points of gate rate.**
 candidate rescuing problems whose first rollout failed, and it is the whole
 justification for K=2 in this packet.
 
+### 14. Hand inspection — a record whose think and answer disagree
+
+The packet's 5-example review, done on the **paired** corpora (same problem,
+both compressors). The first example is the finding:
+
+`gsm8k:95e3c9c6`, gold **6600**. GLM's rewrite reaches 6600 and shows two
+rejected readings of "a month" (`chk 28-day route: … ≠ 6600 ✗`,
+`chk 30-day fractional weeks: … ✗`). Qwen3's rewrite reaches **6200** — the
+wrong answer — by silently choosing one reading and never testing it.
+
+**That record passes every automated check in the pipeline**, including
+`verify_response`, because the verifier grades the **answer segment**, which was
+copied through from the original correct rollout. The record therefore contains
+a flat contradiction: think says 6200, answer says 6600. This is finding 9's
+argument made concrete in one trace, and it is the shape of thing a corpus can
+carry indefinitely without any gate noticing.
+
+**Why a "does the conclusion match gold" check is not the easy fix.** The
+obvious response is to compare the compact trace's final `⇒` against the gold
+answer. Attempted, and it does not work off the shelf: the register writes
+**Unicode math by design** (card §1.1 chose `²` over `^2` for token cost), while
+`whetstone.verify` expects LaTeX. So `4√2` vs `4\sqrt{2}`, `π/4` vs
+`\dfrac{\pi}{4}`, `a³+a²` vs `a^3 + a^2` all read as mismatches. Measured
+"agreement" came out 67.6% for GLM and 82.8% for Qwen3 — *inverted*, because GLM
+uses more Unicode math and is punished more by the normaliser.
+
+Two consequences worth carrying forward:
+
+* **The deterministic verifier cannot grade compact-register conclusions.** It
+  is fine where the project actually uses it — Stage A/C grade the *answer*
+  segment, which stays LaTeX — but a register-aware normaliser (Unicode math ↔
+  LaTeX) is a prerequisite for any think-segment grading.
+* **Fifth measurement artifact in this packet.** Step numbers (twice),
+  comma-fusion, notation-vs-content, and now Unicode-vs-LaTeX have each produced
+  a confident, inverted result on this corpus. Every one looked like a finding
+  first. The standing lesson: on this data, a naive string comparison between
+  corpora is guilty until audited.
+
+---
+
+## Hand-inspected examples (packet deliverable, 5 problems, paired)
+
+### gsm8k:95e3c9c6 — level 1 — gold `6600`
+**problem:** Reese joined a Pinterest group where members contributed an average of 10 pins per day. The group owner deleted older pins at the rate of 5 pins per week per person. If the group has 20 people and the total number of pin
+
+**verbose think (7040 tok) — first 400 chars:**
+```
+Okay, let's try to figure out this Pinterest group problem. So, Reese joined the group, and there are 20 people in total. The average number of pins contributed per day by members is 10. The group owner deletes older pins at a rate of 5 pins per week per person. The total number of pins is 1000, and we need to find out how many pins there will be after Reese has been a member for a month. 
+
+First,…
+```
+
+**GLM compact (7 lines):**
+```
+goal: pins after 1 month; initial=1000, 20 people
+let pins/day = 20·10 = 200; deletes/week = 20·5 = 100; month = 4 weeks
+1. 4-week interpretation: pins_added = 200·30 = 6000; pins_deleted = 100·4 = 400
+2. net = 1000 + 6000 − 400 = 6600
+3. chk 28-day route: 200·28 − 100·4 = 5200 → 1000+5200 = 6200 ≠ 6600 ✗
+4. chk 30-day fractional weeks: 100·(30/7) ≈ 428.6 → non-integer pins ✗
+⇒ 6600
+```
+
+**Qwen3 compact (10 lines):**
+```
+goal: pins after 1 month
+let total=1000
+1. pins added per day: 20 people * 10 pins/day = 200
+2. pins added per week: 200 * 7 = 1400
+3. pins deleted per week: 20 people * 5 pins/week/person = 100
+4. net pins per week: 1400 - 100 = 1300
+5. pins added in 4 weeks: 1300 * 4 = 5200
+6. total pins: 1000 + 5200 = 6200
+chk: 1000 + 5200 = 6200 ✓
+⇒ 6200
+```
+
+---
+
+### deepmath:910457f1 — level 4 — gold `2 \sqrt{3}`
+**problem:** Find the maximum value of \[f(x) = \sqrt{8x - x^2} - \sqrt{14x - x^2 - 48}.\]
+
+**verbose think (8302 tok) — first 400 chars:**
+```
+Okay, so I need to find the maximum value of the function $ f(x) = \sqrt{8x - x^2} - \sqrt{14x - x^2 - 48} $. Hmm, let me start by understanding what this function looks like and where it's defined.
+
+First, I know that square roots require their arguments to be non-negative. So, for $ \sqrt{8x - x^2} $, the expression inside the square root must be greater than or equal to zero. Let me write that…
+```
+
+**GLM compact (17 lines):**
+```
+goal: max f(x)=√(8x−x²)−√(14x−x²−48)
+1. domain: 8x−x²≥0 → x(x−8)≤0 → x∈[0,8]
+2. domain: 14x−x²−48≥0 → x²−14x+48≤0 → (x−6)(x−8)≤0 → x∈[6,8]
+3. domain of f: [0,8]∩[6,8]=[6,8]
+4. f'(x)=(4−x)/√(8x−x²) − (7−x)/√(14x−x²−48)
+5. f'(x)=0: (4−x)/√(8x−x²) = (7−x)/√(14x−x²−48); square both sides
+6. cross-multiply: (4−x)²(14x−x²−48)=(7−x)²(8x−x²)
+7. expand LHS: (16−8x+x²)(−x²+14x−48) = −x⁴+22x³−176x²+608x−768
+8. expand RHS: (49−14x+x²)(−x²+8x) = −x⁴+22x³−161x²+392x
+9. set LHS=RHS, subtract: −15x²+216x−768=0 → 5x²−72x+256=0
+10. quadratic: x=[72±√(5184−5120)]/10=[72±8]/10 → x=8 or x=6.4
+11. chk x=8: (4−8)/√(0) → undefined ✗
+12. chk x=6.4: LHS=(4−6.4)/√(10.24)=−2.4/3.2=−0.75; RHS=(7−6.4)/√(0.64)=0.6/0.8=0.75; LHS≠RHS ✗
+13. both candidates extraneous ⇒ no critical pts in (6,8) ⇒ f decreasing on [6,8]
+14. f(6)=√(48−36)−√(0)=√12=2√3
+chk: f(8)=0−0=0 < 2√3 ✓
+⇒ max=2√3
+```
+
+**Qwen3 compact (8 lines):**
+```
+goal: max value of f(x) = sqrt(8x - x²) - sqrt(14x - x² - 48)
+let domain = [6, 8]
+1. domain = [6, 8]
+2. f(x) = sqrt(8x - x²) - sqrt(14x - x² - 48)
+3. f(6) = sqrt(12) - 0 = 2√3
+4. f(x) is decreasing on [6, 8] (derivative < 0)
+5. max value at x=6
+6. ⇒ 2√3
+```
+
+---
+
+### deepmath:a98092b7 — level 6 — gold `24`
+**problem:** Evaluate the expression \( \sin(5^{\circ})\sin(55^{\circ})\sin(65^{\circ}) = \frac{A\sqrt{B}+C\sqrt{D}}{E} \), where \( B \) and \( D \) are natural numbers not divisible by the square of any prime, \( A \) and \( C \) a
+
+**verbose think (4465 tok) — first 400 chars:**
+```
+Okay, so I need to evaluate the expression $ \sin(5^{\circ})\sin(55^{\circ})\sin(65^{\circ}) $ and express it in the form $ \frac{A\sqrt{B}+C\sqrt{D}}{E} $, where B and D are natural numbers not divisible by the square of any prime, A and C are integers, and E is a natural number. Then find A + B + C + D + E.
+
+First, I remember that there are some trigonometric identities that can help simplify pr…
+```
+
+**GLM compact (10 lines):**
+```
+goal: A+B+C+D+E from sin5°sin55°sin65°=(A√B+C√D)/E
+1. sin5°sin55° = ½[cos(5−55)−cos(5+55)] = ½[cos(−50°)−cos60°] = ½[cos50°−½] = ½cos50°−¼
+2. ×sin65°: ½cos50°sin65° − ¼sin65°
+3. cos50°sin65° = ½[sin(50+65)+sin(65−50)] = ½[sin115°+sin15°]
+4. expr = ¼[sin115°+sin15°] − ¼sin65° = ¼[sin115°+sin15°−sin65°]
+5. sin115°=sin(180°−65°)=sin65° → ¼[sin65°+sin15°−sin65°] = ¼sin15°
+6. sin15°=sin(45°−30°)=(√2/2)(√3/2)−(√2/2)(½)=(√6−√2)/4
+7. expr=(√6−√2)/16 → A=1,B=6,C=−1,D=2,E=16
+chk: √6≈2.449,√2≈1.414 → (2.449−1.414)/16≈1.035/16≈0.0647; sin5°≈0.0872,sin55°≈0.819,sin65°≈0.906 → prod≈0.0647 ✓
+⇒ 1+6+(−1)+2+16=24
+```
+
+**Qwen3 compact (8 lines):**
+```
+goal: sin(5°)sin(55°)sin(65°) = (A√B + C√D)/E
+1. sin(5°)sin(55°)sin(65°) = (1/4) sin(15°)
+2. sin(15°) = (√6 - √2)/4
+3. (1/4) sin(15°) = (√6 - √2)/16
+4. Expression = (-√2 + √6)/16
+5. A = -1, B = 2, C = 1, D = 6, E = 16
+6. A + B + C + D + E = -1 + 2 + 1 + 6 + 16 = 24
+⇒ 24
+```
+
+---
+
+### deepmath:1bfd31b7 — level 8 — gold `-4\pi i`
+**problem:** Evaluate the contour integral \( \oint_{|z|=2} \tan{z}\,dz \). Here, \( |z|=2 \) represents a circle of radius 2 centered at the origin in the complex plane.
+
+**verbose think (5600 tok) — first 400 chars:**
+```
+Okay, so I need to evaluate the contour integral of tan(z) around the circle |z| = 2. Hmm, let me start by recalling some complex analysis. I know that integrating tan(z) over a closed contour can be tricky because tan(z) has singularities where cos(z) = 0, right? So first, I should figure out where these singularities are inside the contour |z| = 2.
+
+The function tan(z) is defined as sin(z)/cos(z…
+```
+
+**GLM compact (11 lines):**
+```
+goal: ∮_{|z|=2} tan z dz
+let tan z = sin z/cos z; poles where cos z=0 → z=π/2+πk
+1. k=0: z=π/2≈1.57<2 ✓ inside; k=1: 3π/2≈4.71>2 ✗; k=−1: −π/2≈−1.57, |−1.57|<2 ✓ inside; k=±2: outside ✗
+2. two poles inside: z=π/2, z=−π/2
+3. residue formula for g/h at simple zero a of h: Res = g(a)/h'(a); here g=sin, h=cos, h'=−sin
+4. Res at z=π/2: sin(π/2)/(−sin(π/2)) = 1/(−1) = −1
+5. Res at z=−π/2: sin(−π/2)/(−sin(−π/2)) = (−1)/(1) = −1
+6. Σ Res = −1+(−1) = −2
+7. ∮ = 2πi·(Σ Res) = 2πi·(−2) = −4πi
+chk: residue via direct limit at π/2: let w=z−π/2; sin(π/2+w)=cos w; cos(π/2+w)=−sin w; w·cos w/(−sin w)→−1 ✓ (same at −π/2)
+⇒ −4πi
+```
+
+**Qwen3 compact (6 lines):**
+```
+goal: ∮_{|z|=2} tan(z) dz
+1. find poles inside |z|=2: z=±π/2
+2. residues at z=±π/2: -1 each
+3. sum of residues: -1 + (-1) = -2
+4. integral: 2πi * (-2) = -4πi
+⇒ -4πi
+```
+
+---
+
+### deepmath:917c8621 — level 9 — gold `Yes`
+**problem:** Determine whether the cardinality of the set \( A = \{ D \subset [0,1] : |D| \leq |\mathbb{N}| \} \) is less than or equal to the cardinality of the real numbers \( \mathbb{R} \).
+
+**verbose think (4667 tok) — first 400 chars:**
+```
+Okay, so I need to figure out whether the cardinality of the set A, which is all subsets D of [0,1] where the size of D is less than or equal to the cardinality of the natural numbers, is less than or equal to the cardinality of the real numbers. Let me start by recalling some basic concepts.
+
+First, the cardinality of the natural numbers, ℵ₀, is the smallest infinite cardinality, and it's also th…
+```
+
+**GLM compact (10 lines):**
+```
+goal: |A| ≤ |ℝ|? where A={D⊂[0,1] : |D|≤|ℕ|}
+let |ℕ|=ℵ₀, |ℝ|=2^{ℵ₀}
+1. |D|≤ℵ₀ ⇒ D finite or countably infinite
+2. finite subsets of [0,1]: |[0,1]_{<ω}| = ℵ₀
+3. countably infinite subsets: each is image of an injection ℕ→[0,1]; |[0,1]^ℕ|=(2^{ℵ₀})^{ℵ₀}=2^{ℵ₀} ⇒ upper bound 2^{ℵ₀}
+4. lower bound: each x∈[0,1] maps to countable set Q∪{x} ⇒ ≥2^{ℵ₀}
+5. ⇒ |countably infinite subsets|=2^{ℵ₀}
+6. |A|=ℵ₀∪2^{ℵ₀}=2^{ℵ₀}=|ℝ|
+chk: A⊂𝒫([0,1]) ⇒ |A|≤2^{ℵ₀} ✓
+⇒ Yes
+```
+
+**Qwen3 compact (9 lines):**
+```
+goal: cardinality of A ≤ cardinality of ℝ?
+let A = {D ⊂ [0,1] : |D| ≤ |ℕ|}
+1. |ℕ| = ℵ₀, so |D| ≤ ℵ₀ ⇒ D is finite or countably infinite
+2. Set of all finite subsets of [0,1] is countable (ℵ₀)
+3. Set of all countably infinite subsets of [0,1] is 2^ℵ₀
+4. A = union of countable and 2^ℵ₀ ⇒ A has cardinality 2^ℵ₀
+5. Cardinality of ℝ is 2^ℵ₀
+6. Therefore, |A| = |ℝ|
+⇒ Yes
+```
+
+---
+
+
+---
+
 ## Conclusion
 
 ⟨pending — written when the harvest, register corpus and H_pivot are done.⟩
