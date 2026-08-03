@@ -2,9 +2,9 @@
 
 - **Packet:** [packets/P3-seed-corpus.md](packets/P3-seed-corpus.md)
 - **Status:** done
-- **Machine(s):** mac (code), turing (harvest + compression), spark (Δlogp, pre-flight)
+- **Machine(s):** mac (code), turing (harvest + compression, 4 model servers), spark (scoring, entropy, judge)
 - **Code commit(s):** `ed5cd8e` → `<this commit>`
-- **Started / finished:** 2026-08-02 → —
+- **Started / finished:** 2026-08-02 → 2026-08-03
 
 ## Goal
 
@@ -278,7 +278,7 @@ single letters and rolled into `AAA`/`BBB` loops. Ratification banned the
 scheme. On the 20-trace dry run: **cap-hit 0.0%**, stalled-chunk rate 0.00, 0%
 of traces ≥50% stalled. Activity 004's required edit 1 is confirmed effective.
 
-### 7. Register adoption is lower than the bake-off — under investigation
+### 7. Register adoption vs the bake-off — resolved: input length, not the card
 
 Measured with the bake-off's own metric code (`bakeoff_metrics.py`, so the
 numbers are directly comparable to activity 004):
@@ -316,7 +316,7 @@ Two candidate causes, and they are separable:
    Exemplar 5 alone is 2.44 — close to what the model now produces.
 
 **Controlled run — the bake-off's own 50 traces, recompressed with the ratified
-card.** Same inputs, different card, so it isolates cause 2 from cause 1:
+card.** Same inputs, different card, isolating the card from the input change:
 
 | on the SAME 50 bake-off traces | bake-off card | ratified card |
 |---|---|---|
@@ -478,9 +478,11 @@ counting those. And these are the *bake-off's* 5.4k-token traces; P3's own
 inputs are 8.8k and compress 1.7× harder, so the real corpus is likely worse,
 not better.
 
-**Escalated to the user — not resolved unilaterally.** Fixing it means either
-editing a ratified card or putting an external model in the corpus-generation
-path, and both are the user's call.
+**Resolved by the user**, in two steps: authorising an external compressor for a
+bootstrap corpus (finding 10), and then — once finding 15 showed the underlying
+capability is not promptable at this scale — decoupling teacher from student
+([006](006-teacher-student-decoupling.md)). Δlogp itself was retired outright
+(finding 11).
 
 ### 10. GLM-5.2 bootstrap corpus — attested central-model deviation
 
@@ -582,25 +584,17 @@ register numbers its steps, so a longer — i.e. more faithful — rewrite
 mechanically introduces more integers. After stripping step markers both medians
 are 0.0 and the ordering is sane.
 
-**RETRACTED: the "mark against the GLM corpus" was my measurement, not the
-corpus.** I reported p90 `invented_frac` 0.318 vs 0.077 as evidence GLM
-confabulates numerals. Audited, and it does not hold:
-
-* `_nums` stripped commas globally to handle thousands separators, which fused
-  the register's own step back-references — `from 4,5:` became the numeral
-  **45**, `from 6,9` became **69**. Fixing that drops GLM's p90 from 0.318 to
-  **0.214**. The artifact scales with how much derivation structure a rewrite
-  shows, so it penalised precisely the traces it should reward;
-* the residual is not confabulation either. The two worst survivors are an
-  abstract-algebra trace whose only numerals are `-1` from `S^{-1}A`, `1` from
-  `{1,f,f²,…}` and step cross-references (a problem with no numbers scores worst
-  by construction), and a trace that **builds a concrete counterexample to check
-  itself** — `use (0,0.49),(0.51,1) → Σμ=0.98>0.5 ✓` — which is work we want.
-
-`invented_frac` is therefore **demoted to a diagnostic** (`--max_invented_frac`
-defaults to 1.0, disabled). It penalises abstract problems, step
-cross-references, and self-checking by concrete instance. The gate's real
-checks are `branch_kept`, `verify_kept` and `value_coverage`.
+**`invented_frac` is a diagnostic, not a gate** (default disabled). An earlier
+reading of it — p90 0.318 for GLM vs 0.077 for Qwen3 — was reported as evidence
+GLM confabulates numerals, and does not survive audit. A third of it was
+comma-fusion of the register's own step back-references (`from 4,5:` parsed as
+the numeral **45**), now fixed. The residual is not confabulation: the worst
+survivors are an abstract-algebra trace whose only numerals are exponent
+notation (`S^{-1}A`) and step cross-references, and a trace that **builds a
+concrete counterexample to check itself** (`use (0,0.49),(0.51,1) → Σμ=0.98>0.5 ✓`)
+— work we want. The check penalises abstract problems, cross-references, and
+self-checking by instance, so the gate's real checks are `branch_kept`,
+`verify_kept` and `value_coverage`.
 
 **Four times in this packet a numeral-extraction confound produced a false
 finding** (37% "invented" in the ad-hoc probe → step numbers; the gate's first
@@ -686,83 +680,6 @@ work through RL.
 
 ---
 
-## Runbook for the rest of the packet (revised — findings 9–12)
-
-The original runbook is superseded: it built **one** corpus gated on Δlogp.
-There are now **two** corpora with different compressors, different consumers and
-different gates, and Δlogp gates neither.
-
-**Already done** (out of order, because the GLM path needs no GPU):
-
-| # | box | what | state |
-|---|---|---|---|
-| a | turing | `verify_harvest.py` → 2,752/3,639 kept (75.6%) | ✅ |
-| b | turing | `select_compression_inputs.py --n 1200` (the paired input set) | ✅ |
-| c | spark | `glm_compress.py` → `seed_register_glm/compact_glm.jsonl`, 989 traces | ✅ |
-| d | turing | `compress_local_versionB.py` arm `A_control` → 200 Qwen3 traces (pilot) | ✅ |
-
-**Remaining:**
-
-| # | box | what |
-|---|---|---|
-| 1 | turing | Qwen3 register corpus over **the same 1,200 inputs** — queued, fires when the harvest client exits |
-| 2 | turing | `harvest_report.py` → full per-level yield table (packet deliverable) |
-| 3 | turing | stop the vLLM server, freeing the GPU |
-| 4 | spark | `structural_gate.py` on **both** corpora — paired, so thresholds can finally be pinned |
-| 5 | spark | filter the **GLM** corpus on `structural_pass` → Stage-A conditioning set |
-| 6 | spark | `entropy_audit.py --traces <qwen corpus>` → **H_pivot = p80**, from the Qwen3 side only |
-| 7 | spark | `build_round0_sets.py` on the **Qwen3** corpus → train / heldout_register / probe_pool + verbose control |
-| 8 | any | `show_bakeoff_examples.py --mode faithful --n 5` → hand-inspection deliverable |
-| 9 | spark | `faithfulness_audit.py` on a sample of each corpus — **audit, not gate** |
-
-Two rules carried from the findings, easy to violate by habit:
-
-* **Do not filter the Qwen3 corpus.** Round 0 and H_pivot measure the student's
-  own distribution; filtering biases the very thing they measure. Annotate and
-  report only.
-* **Do not pin H_pivot or inoculate from the GLM corpus.** Measured: H_pivot is
-  **0.9119** on GLM text vs **0.5067** on Qwen3's own — 1.8×, and *above* even
-  the native-verbose 0.6923.
-
-## Part 1 result — full seed harvest, 9,000 / 9,000 rollouts, 0 failures
-
-Completed 2026-08-03 after ~7h and three deliberate restarts (one mandated
-resume test, one to add `--shuffle`, one to raise concurrency). Zero failed
-requests across the whole run; `seed_harvest.jsonl.failed.jsonl` is empty.
-
-| level | problems | rollouts | verify | solve@K | gate | usable | cap-hit | think med | answer med |
-|---|---|---|---|---|---|---|---|---|---|
-| 1 | 901 | 1802 | 92.8% | 94.8% | 100.0% | 92.8% | 0.0% | 1344 | 281 |
-| 2 | 5 | 10 | 100.0% | 100.0% | 100.0% | 100.0% | 0.0% | 4115 | 476 |
-| 3 | 115 | 230 | 77.8% | 80.0% | 100.0% | 77.8% | 0.0% | 3465 | 584 |
-| 4 | 226 | 452 | 78.8% | 83.6% | 99.6% | 78.8% | 0.4% | 5566 | 746 |
-| 5 | 725 | 1450 | 77.0% | 84.1% | 99.9% | 77.0% | 0.3% | 6565 | 809 |
-| 6 | 1124 | 2248 | 77.3% | 85.1% | 99.5% | 77.3% | 0.6% | 7655 | 848 |
-| 7 | 569 | 1138 | 74.4% | 82.8% | 99.6% | 74.3% | 0.4% | 8010 | 843 |
-| 8 | 646 | 1292 | 64.2% | 74.5% | 99.9% | 64.2% | 0.1% | 9285 | 836 |
-| 9 | 188 | 376 | 50.5% | 66.5% | 100.0% | 50.5% | 0.0% | 9290 | 838 |
-| 10 | 1 | 2 | 0.0% | 0.0% | 100.0% | 0.0% | 0.0% | 7677 | 866 |
-| **ALL** | **4500** | **9000** | **77.1%** | **84.1%** | **99.8%** | **77.1%** | **0.3%** | **6363** | **748** |
-
-Gate failures: 22 in 9,000, all `missing_think_close` (the cap-hits).
-
-**The packet's expectation was wrong in the good direction, and the reason is
-the token budget.** It predicted the bulk harvest would land ~3 points *under*
-the activity-003 probe's 73%; it landed **4 points above**. Per level against
-that probe: L1 92.8% vs 86%, L5 **77.0% vs ~56%**, L9 50.5% vs 50%.
-
-The probe ran at a 16,384-token cap with **9% cap-hits**; this harvest ran at
-32,768 with **0.3%**. A cap-hit is a trace that never reaches an answer, so it
-is scored wrong *and* has no answer segment — recovering those is worth several
-points of yield on its own, and it is concentrated in the mid-levels where
-traces are long enough to truncate but not hard enough to fail. Finding 1's
-claim that the generous budget "converts waste into usable traces" is now
-quantified: **+4 points of verify rate, not just +9 points of gate rate.**
-
-`solve@K` (84.1%) exceeds `verify` (77.1%) by 7 points — that is the K=2 second
-candidate rescuing problems whose first rollout failed, and it is the whole
-justification for K=2 in this packet.
-
 ### 14. Hand inspection — a record whose think and answer disagree
 
 The packet's 5-example review, done on the **paired** corpora (same problem,
@@ -802,6 +719,125 @@ Two consequences worth carrying forward:
   corpora is guilty until audited.
 
 ---
+
+### 15. Branch preservation is a scale capability that prompting cannot transfer
+
+Four compressors, four prompting channels, all measured on the same inputs. This
+consolidates a sequence of runs whose intermediate readings were misleading —
+see the correction note at the end.
+
+**As compressors** — paired, 989 shared problems, identical inputs and ratified
+card:
+
+| compressor | branch | verify | val_cov | lines | mark/100ch |
+|---|---|---|---|---|---|
+| Qwen3-1.7B | 3.1% | 26.2% | 0.500 | 8 | 1.22 |
+| Qwen3-14B-FP8 | 5.9% | 60.1% | 0.625 | 10 | 0.82 |
+| **Qwen3-32B-NVFP4** | **13.9%** | **70.6%** | 0.600 | 9 | **2.10** |
+| GLM-5.2 | 39.9% | 95.9% | 0.667 | 11 | 3.15 |
+
+Branch retention scales **3.1 → 5.9 → 13.9%**, roughly a doubling per ~2.3×
+parameters. Extrapolated, matching GLM's 39.9% needs ~2 further doublings
+(order 10²B) — consistent with GLM-5.2 being frontier-scale, so the gap is scale,
+not a mysterious training difference.
+
+Per level, one qualitative difference persists: **32B is flat at 13–18% across
+L3–L9 while GLM rises 39% → 51%** with difficulty. Scale raises the floor; only
+GLM adapts to how much case analysis a problem contains. At level 1 all four sit
+at 6–9%, which is evidence the metric tracks something real rather than style —
+trivial arithmetic has no branches to preserve.
+
+**As demonstrations — nothing works.** Same 200 traces, 1.7B compressor:
+
+| channel | branch | verify | mark/100ch |
+|---|---|---|---|
+| ratified card (no demos) | 2% | 35% | 1.26 |
+| GLM long-trace exemplars in the card (+517 tok/rollout) | 1% | 42% | 1.19 |
+| level-matched k=4 demos, GLM pool | 2% | 44% | 1.10 |
+| level-matched k=4 demos, 14B pool | 1% | 49% | 0.85 |
+| level-matched k=4 demos, 32B pool | 2% | 40% | 1.17 |
+
+**Branch retention is 1–2% under every configuration.** The `verify` spread
+(35–49%) is within noise at n=199 (SE ≈ 3.5pp) and shows no ordering by pool
+quality or family proximity. Level-matching *did* beat the static card on length
+(8 → 9 lines, ratio +15%), so the channel is not inert — it transfers surface
+behaviour and not structure. Emitting a `chk:` line is formatting and copies
+from a demonstration; noticing that a 6,500-token trace explored and discarded an
+approach is comprehension, and no prompt moved it.
+
+**Design consequence.** v2 makes teacher and student the same checkpoint, and
+design §3 argues in-context conditioning is what puts the target inside the
+sampling support so GRPO can rank it — *"a group-relative reward … cannot jump
+to a register it never samples"*. At the 1.7B tier that premise fails for branch
+preservation under every channel tried, so Stage-A rollouts would not contain the
+behaviour and `G_spike` could not select for it. Interpolating the curve, the
+**4B/8B tier gate does not resolve it either** (~4%). The remaining levers are
+architectural — recorded and decided in
+[006](006-teacher-student-decoupling.md).
+
+**Serving note.** Qwen3-32B-NVFP4 runs on one RTX 5090:
+`quantization=modelopt_fp4`, `kv_cache_dtype=fp8_e4m3` from NVIDIA's checkpoint,
+64,224-token KV cache, ~22 traces/min at concurrency 8,
+`--gpu-memory-utilization 0.93`. 14B-FP8: 76,768-token KV, ~30/min at
+concurrency 12.
+
+**Caveats.** `branch_kept` is the `case `/`✗` marker proxy; 14B and 32B write
+more prose ("either case", "this fails") and may be undercounted, which would
+flatter GLM. 14B's raw output triggered `boxed_in_think` on **65.6%** of traces
+(GLM 3%, 32B 7.8%, 1.7B 2.4%) — all cleaned, none surviving, but its unprompted
+§1.5 compliance is markedly worse. FP8/NVFP4 are weight quantizations on
+compressor-only paths and never touch the student or scorer.
+
+**Correction note — what the intermediate runs got wrong.** Reading 14B alone,
+this was written up as "scale does not buy branch preservation" and "demo
+quality and reachability are anti-correlated"; the 32B arm falsified both — 14B
+was simply a weak point on two axes at once (branch barely moved, marker density
+dipped to 0.82). Two further single-point claims were retracted the same way: a
+same-family transfer advantage (14B demos 49% vs GLM 44% — 32B gives 40%, within
+noise) and student marker density tracking its pool (holds for 14B at 0.85 vs
+0.92, fails for 32B at 1.17 vs 2.19). The superseded text is not preserved here;
+the pattern is recorded in the Method note below because it recurred.
+
+---
+
+## Part 1 result — full seed harvest, 9,000 / 9,000 rollouts, 0 failures
+
+Completed 2026-08-03 after ~7h and three deliberate restarts (one mandated
+resume test, one to add `--shuffle`, one to raise concurrency). Zero failed
+requests across the whole run; `seed_harvest.jsonl.failed.jsonl` is empty.
+
+| level | problems | rollouts | verify | solve@K | gate | usable | cap-hit | think med | answer med |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 | 901 | 1802 | 92.8% | 94.8% | 100.0% | 92.8% | 0.0% | 1344 | 281 |
+| 2 | 5 | 10 | 100.0% | 100.0% | 100.0% | 100.0% | 0.0% | 4115 | 476 |
+| 3 | 115 | 230 | 77.8% | 80.0% | 100.0% | 77.8% | 0.0% | 3465 | 584 |
+| 4 | 226 | 452 | 78.8% | 83.6% | 99.6% | 78.8% | 0.4% | 5566 | 746 |
+| 5 | 725 | 1450 | 77.0% | 84.1% | 99.9% | 77.0% | 0.3% | 6565 | 809 |
+| 6 | 1124 | 2248 | 77.3% | 85.1% | 99.5% | 77.3% | 0.6% | 7655 | 848 |
+| 7 | 569 | 1138 | 74.4% | 82.8% | 99.6% | 74.3% | 0.4% | 8010 | 843 |
+| 8 | 646 | 1292 | 64.2% | 74.5% | 99.9% | 64.2% | 0.1% | 9285 | 836 |
+| 9 | 188 | 376 | 50.5% | 66.5% | 100.0% | 50.5% | 0.0% | 9290 | 838 |
+| 10 | 1 | 2 | 0.0% | 0.0% | 100.0% | 0.0% | 0.0% | 7677 | 866 |
+| **ALL** | **4500** | **9000** | **77.1%** | **84.1%** | **99.8%** | **77.1%** | **0.3%** | **6363** | **748** |
+
+Gate failures: 22 in 9,000, all `missing_think_close` (the cap-hits).
+
+**The packet's expectation was wrong in the good direction, and the reason is
+the token budget.** It predicted the bulk harvest would land ~3 points *under*
+the activity-003 probe's 73%; it landed **4 points above**. Per level against
+that probe: L1 92.8% vs 86%, L5 **77.0% vs ~56%**, L9 50.5% vs 50%.
+
+The probe ran at a 16,384-token cap with **9% cap-hits**; this harvest ran at
+32,768 with **0.3%**. A cap-hit is a trace that never reaches an answer, so it
+is scored wrong *and* has no answer segment — recovering those is worth several
+points of yield on its own, and it is concentrated in the mid-levels where
+traces are long enough to truncate but not hard enough to fail. Finding 1's
+claim that the generous budget "converts waste into usable traces" is now
+quantified: **+4 points of verify rate, not just +9 points of gate rate.**
+
+`solve@K` (84.1%) exceeds `verify` (77.1%) by 7 points — that is the K=2 second
+candidate rescuing problems whose first rollout failed, and it is the whole
+justification for K=2 in this packet.
 
 ## Hand-inspected examples (packet deliverable, 5 problems, paired)
 
@@ -1004,333 +1040,110 @@ let A = {D ⊂ [0,1] : |D| ≤ |ℕ|}
 
 ---
 
-### 15. Reachability — GLM-style compression is NOT reachable by exemplar demonstration
-
-The deferral from finding 12, now measured. The design's mechanism for
-demonstrating the register to the teacher is the card's exemplars
-(`whetstone-v2-design.md:77`: *"Every teacher rollout is conditioned on the
-register card + exemplars … the teacher receives no register SFT"*), so
-"use GLM to demonstrate to the teacher" concretely means promoting GLM
-compressions into the card's exemplar slots.
-
-Built that card — kept exemplars 1–2 (level-1 problems, where a long rewrite
-would be *wrong*), replaced 3–5 with GLM long-trace compressions at L4/L6/L8
-(one from a 22,936-token original). Valid: 0 boundary tokens, 4,356 prompt
-tokens vs the ratified 3,839 (+517 per teacher rollout). Same 200 traces,
-same everything else.
-
-| | lines med | ratio med | **branch** | verify | mark/100ch |
-|---|---|---|---|---|---|
-| Qwen3 + ratified card | 8 | 0.0202 | 2% | 35% | 1.26 |
-| Qwen3 + **GLM-exemplar card** | 8 | 0.0210 | **1%** | 42% | 1.19 |
-| GLM itself (ceiling) | 11 | 0.0298 | **39%** | 95% | 3.15 |
-
-**Essentially no transfer.** Identical line count, ratio and marker density;
-branch retention unchanged at 1–2% against the 39% ceiling. Only `verify_kept`
-moved (35% → 42%, ≈2 SE — marginal).
-
-**This contradicts a premise the design leans on.** Line 77 justifies in-context
-conditioning on the grounds that GRPO "can only rank sampled lengths — it trims
-within the current mode and cannot jump to a register it never samples", so
-conditioning must put terse, correct output inside the sampling support from
-step 0. For *branch preservation* it does not: three long-trace exemplars did
-not put branch-preserving compressions into Qwen3-1.7B's sampling support, so
-Stage-A GRPO would be asked to discover behaviour its rollouts never exhibit.
-
-**Scope, precisely.** This tests **3 static card exemplars**. It does not rule
-out (a) per-rollout retrieval of more, difficulty-matched demonstrations from
-the 806-trace gated pool — the reading of "teacher conditioning corpus" that
-P3's own header implies; (b) the rules-based variants (`B_scale`, `E_all`),
-built but never run; or (c) RL itself. But three exemplars moving nothing is
-weak evidence that more of the same channel will.
-
-**What is and is not established about the GLM bootstrap.** That the GLM corpus
-is a better conditioning *pool* stands (39.9% vs 3.1% branch retention on
-identical inputs). That showing it to Qwen3 makes Qwen3 compress that way does
-**not**. Those are separable claims and only the first has evidence.
-
----
-
-### 16. Prompt-level interventions transfer formatting, not comprehension
-
-Extending finding 15 with the level-matched retrieval the packet's phrase
-"teacher conditioning corpus" actually implies: per rollout, draw k=4 worked
-examples from the 806-trace gated GLM pool **at the same level as the problem**
-(widening ±1 level for thin strata). This removes a real defect in the static
-card — its exemplars 1–2 are level-1 problems compressing to a few hundred
-characters, and they ride in *every* prompt, so a level-9 problem was being
-shown short exemplars while being asked for a long faithful rewrite.
-
-Same 200 traces, all arms:
-
-| arm | lines med | ratio med | **branch** | verify | mark/100ch |
-|---|---|---|---|---|---|
-| ratified card | 8 | 0.0202 | 2% | 35% | 1.26 |
-| GLM exemplars in card | 8 | 0.0210 | 1% | 42% | 1.19 |
-| **level-matched demos, k=4** | **9** | **0.0233** | **2%** | **44%** | 1.10 |
-| GLM ceiling | 11 | 0.0298 | **39%** | 95% | 3.15 |
-
-Level-matching *does* beat the static card where the static card did nothing:
-length rises (8 → 9 lines, ratio +15%) and `verify_kept` climbs 35% → 42% → 44%
-across the three arms. **But branch retention does not move: 2% → 1% → 2%,
-against a 39% ceiling.**
-
-**The pattern is the finding.** Every intervention transfers the *surface*
-behaviours — emit a `chk:` line, write somewhat longer — and none transfers the
-*structural* one. Adding a verification line is formatting: the model can copy
-it from a demonstration. Preserving a rejected branch requires noticing that a
-6,500-token trace explored and discarded an approach, then representing that
-compactly — comprehension, not format. No prompt has moved it, and three
-independent prompt channels have now been tried.
-
-**Read as a capability limit, this has a design consequence.** In v2 the teacher
-and the student are the same checkpoint, and design line 77 argues in-context
-conditioning is what puts the target inside the sampling support so GRPO can
-rank it. If a 1.7B cannot produce branch-preserving compressions under *any*
-prompt, then Stage-A rollouts never contain them, `G_spike` has nothing to
-select on that axis, and no amount of RL creates the behaviour. The lever that
-remains is not a better prompt — it is a **more capable compressor**, which is
-why the Qwen3-14B-FP8 arm exists (finding 17).
-
-Caveat: "branch retention" here is the `case `/`✗` marker proxy, whose
-source-side detector over-fires (finding 12). It is a reliable *between-corpus*
-signal — 39% vs 2% is not noise — but it is not a direct measurement of whether
-each individual branch survived.
-
----
-
-### 17. Demo quality and demo reachability are anti-correlated — Qwen3-14B-FP8 arm
-
-Tests whether a **same-family, larger** compressor beats a frontier model from
-another lab, on the reasoning that an identical tokenizer and pretraining should
-make its output both distributionally nearer (usable for H_pivot) and more
-imitable (fixing finding 16). Qwen3-14B-FP8 served on the 5090 at
-`gpu-memory-utilization 0.92` (76,768-token KV cache, ~12 concurrent), same
-1,200 inputs, same ratified card.
-
-**As a compressor** — paired on 989 problems:
-
-| | branch | verify | val_cov | lines | mark/100ch |
-|---|---|---|---|---|---|
-| Qwen3-14B-FP8 | **5.9%** | 60.1% | 0.625 | 10 | **0.82** |
-| GLM-5.2 | **39.9%** | 95.9% | 0.667 | 11 | 3.15 |
-| Qwen3-1.7B | 3.1% | 26.2% | 0.500 | 8 | 1.22 |
-
-Scale within the family buys verification (26% → 60%) and value coverage
-(0.50 → 0.625) but **not branch preservation** (3.1% → 5.9%), and register
-adoption *drops* (1.22 → 0.82) — a stronger model has stronger stylistic priors
-and follows the card's notation less slavishly, writing semi-prose
-("Given:", "By independence,", "Therefore,").
-
-Per level, the difference is qualitative rather than one of degree:
-
-| level | 3 | 5 | 7 | 8 | 9 |
-|---|---|---|---|---|---|
-| 14B | 4% | 4% | 7% | 5% | 5% |
-| GLM | **39%** | **34%** | **42%** | **48%** | **51%** |
-| 1.7B | 0% | 4% | 2% | 2% | 0% |
-
-**GLM's branch retention rises with difficulty; 14B's is flat, like the 1.7B's.**
-Only GLM notices that harder problems contain more case analysis.
-
-**As a demo pool** — level-matched k=4 into the 1.7B, same 200 traces:
-
-| arm | lines | ratio | branch | verify | mark/100ch |
-|---|---|---|---|---|---|
-| ratified card | 8 | 0.0202 | 2% | 35% | 1.26 |
-| GLM demos k=4 | 9 | 0.0233 | 2% | 44% | 1.10 |
-| **14B demos k=4** | 8 | 0.0245 | 1% | **49%** | **0.85** |
-| GLM pool | 11 | 0.0298 | 39% | 95% | 3.15 |
-| 14B pool | 10 | 0.0382 | 3% | 64% | 0.92 |
-
-**Family proximity does improve transfer.** The 14B pool is *weaker* than GLM
-(64% vs 95% verify) yet transferred *more* verification (49% vs 44%). The
-clearest signal is marker density: with 14B demos the student lands at 0.85,
-tracking its pool's 0.92; with GLM demos it sits at 1.10 against a pool at 3.15.
-Same-family demonstrations are imitated; cross-family ones are not — including
-the pool's faults, since the student also drifted toward 14B's semi-prose and
-away from the register.
-
-**The binding result: the two properties a demo pool needs are anti-correlated
-across everything available.**
-
-* **GLM** has branch preservation (39.9%) and is too distant to imitate;
-* **14B** is close enough to imitate and does not have it (5.9%).
-
-Every route leaves the 1.7B at 1–2% branch retention. **This cannot be fixed by
-choosing a better demonstration source.**
-
-**Design consequence, and it is not a P3 issue.** v2 makes teacher and student
-the same checkpoint, and design line 77 relies on in-context conditioning to put
-the target inside the sampling support so GRPO can rank it. At the 1.7B tier
-that fails for branch preservation under every prompt channel tried (static
-exemplars, level-matched retrieval, two different pools). Stage-A rollouts would
-not contain the behaviour, so `G_spike` cannot select for it. The remaining
-levers are architectural, not prompt-level:
-
-1. run Stage A at the **4B/8B tier**, where the teacher may be able to do what
-   the 1.7B cannot (CLAUDE.md already gates 4B/8B behind F1–F4);
-2. **decouple teacher from student** — a larger teacher compressing for a
-   smaller student, which is a real departure from the v2 design;
-3. accept that the 1.7B register will not preserve branches and re-scope what
-   `G_spike` is expected to reward.
-
-**Caveats.** `branch_kept` is the `case `/`✗` marker proxy, and 14B's prose style
-may under-count genuine branch preservation — that would flatter GLM. FP8 is
-weight quantization; it is a compressor-only path and never touches the student
-or scorer. And 14B's raw output triggered `boxed_in_think` on **65.6%** of
-traces (vs GLM 3%, 1.7B 2.4%) — all cleaned, 0/1200 surviving, but its
-unprompted §1.5 compliance is markedly worse.
-
----
-
-### 18. Qwen3-32B-NVFP4 — scale DOES buy branch preservation; demonstration still does not
-
-Corrects finding 17, which concluded from 14B alone that scale within the family
-does not buy branch preservation. With a 32B point the curve is clear.
-
-**As compressors** — paired, 989 shared problems, same inputs and card:
-
-| | branch | verify | val_cov | lines | mark/100ch |
-|---|---|---|---|---|---|
-| Qwen3-1.7B | 3.1% | 26.2% | 0.500 | 8 | 1.22 |
-| Qwen3-14B-FP8 | 5.9% | 60.1% | 0.625 | 10 | 0.82 |
-| **Qwen3-32B-NVFP4** | **13.9%** | **70.6%** | 0.600 | 9 | **2.10** |
-| GLM-5.2 | 39.9% | 95.9% | 0.667 | 11 | 3.15 |
-
-Branch retention scales 3.1 → 5.9 → 13.9% — roughly a doubling per ~2.3×
-parameters. Extrapolated, matching GLM's 39.9% needs ~2 further doublings
-(order 10²B), consistent with GLM-5.2 being frontier-scale. **14B was a weak
-point on two axes at once** (branch barely moved, marker density dipped to
-0.82); 32B recovers both, so finding 17's "scale does not buy it" was an
-artifact of a single mid-size sample.
-
-Per level, one difference persists: 32B is **flat at 13–18% across L3–L9**,
-while GLM *rises* 39% → 51% with difficulty. Scale raises the floor; only GLM
-adapts to how much case analysis a problem contains. At level 1 all four sit at
-6–9%, which is evidence the metric tracks something real rather than style.
-
-Served on one 5090: `quantization=modelopt_fp4`, NVIDIA's checkpoint ships
-`kv_cache_dtype=fp8_e4m3`, 64,224-token KV cache, ~22 traces/min at concurrency
-8.
-
-**As a demo pool — no configuration moves the student.** Level-matched k=4 into
-the 1.7B, same 200 traces:
-
-| arm | branch | verify | mark/100ch |
-|---|---|---|---|
-| ratified card (no demos) | 2% | 35% | 1.26 |
-| GLM demos | 2% | 44% | 1.10 |
-| 14B demos | 1% | 49% | 0.85 |
-| **32B demos** | **2%** | **40%** | 1.17 |
-| *32B pool (ceiling)* | *10%* | *74%* | *2.19* |
-| *GLM pool (ceiling)* | *39%* | *95%* | *3.15* |
-
-**Two claims from finding 17 are retracted.** (a) "Same-family demos transfer
-verification better" rested on 14B's 49% vs GLM's 44%; 32B — same family and a
-better source — gives 40%. The 40–49% spread is within noise at n=199
-(SE ≈ 3.5pp). (b) "Student marker density tracks the pool" held for 14B
-(0.85 vs 0.92) and fails for 32B (1.17 vs 2.19). Both were single-point reads.
-
-**What survives is stronger for the correction:** branch retention is **1–2%
-under every configuration tried** — no demos, static card exemplars,
-level-matched retrieval from three pools spanning 14B, 32B and frontier scale.
-Four pool configurations, one answer. The anti-correlation framing of finding 17
-was also wrong: 32B has *both* proximity and a better source, and still moves
-nothing. The correct statement is simpler — **prompting does not move this
-behaviour at the 1.7B tier at all**, regardless of what it is shown.
-
-**Consequence for the design decision.** Combining the two halves: branch
-preservation is a *capability* that appears with scale (3% → 14% from 1.7B to
-32B) and cannot be transferred by demonstration. So the levers narrow to one:
-
-* ~~better demonstrations~~ — four pools, no effect;
-* ~~4B/8B tier~~ — interpolating the curve puts it at ~4%, barely above the
-  1.7B, so the CLAUDE.md tier gate does not resolve this either;
-* **decouple teacher from student** — a 32B teacher reaches 13.9% and fits on
-  one 5090 in NVFP4. This is a real departure from v2 (teacher and student are
-  the same checkpoint) and is now the only lever the data supports;
-* or **re-scope `G_spike`** so it is not asked to reward a behaviour the
-  student's rollouts never contain.
-
----
-
 ## Conclusion
 
-**P3 is done, with a materially different shape than the packet specified.** The
-harvest ran as written; Part 2 did not, and the reasons are measured rather than
-argued.
+**P3 is done, in a materially different shape than the packet specified**, and
+the packet's Part 2 work opened a design question that P3 could not contain —
+recorded separately as [006](006-teacher-student-decoupling.md).
 
 ### Pinned for downstream packets
 
 | quantity | value | source |
 |---|---|---|
-| **H_pivot** | **0.6707 nats** | p80 of think entropy, 1,200 Qwen3 register traces, 243,190 tokens |
+| **H_pivot** | **0.6707 nats** | p80 of think entropy, 1,200 **Qwen3-1.7B** register traces, 243,190 tokens |
 | harvest verify rate | 77.1% (solve@K 84.1%) | 9,000/9,000 rollouts, 0 failures |
-| parser gate | 99.8% | 22 failures, all cap-hits |
-| cap-hit rate | 0.3% | at `max_tokens=32768` |
-| Round-0 splits | train 960 / heldout_register 120 / probe_pool 120 | fixed seed, level-stratified |
-| verbose control | 200 | disjoint from the register corpus (2,584 candidates) |
+| parser gate / cap-hit | 99.8% / 0.3% | at `max_tokens = 32768` |
+| Round-0 splits | train 960 / heldout_register 120 / probe_pool 120 | fixed seed, level-stratified, **do not re-split** |
+| verbose control | 200 | disjoint from the register corpus |
 
 **H_pivot overturns activity 004's flag.** 004 measured 0.2276 on a contaminated
-corpus and warned the compact register would be ~3× more deterministic than
-native CoT, interacting badly with `Δ_max = 0.7` and TEA's `τ_c = 1.0`. The real
-value, 0.6707, sits within 3% of the native-trace 0.6923. Those concerns
-dissolve. (My own 50-trace intermediate estimate, 0.5067, was still 32% low —
-these percentiles need scale.)
+corpus and warned of a ~3× drop from native CoT, interacting badly with
+`Δ_max = 0.7` and TEA's `τ_c = 1.0`. The real value is within 3% of the
+native-trace 0.6923; those concerns dissolve. (An intermediate 50-trace estimate
+of 0.5067 was still 32% low — these percentiles need scale.)
+
+### Corpora produced — four, paired on the same 1,200 inputs
+
+| corpus | compressor | n (gated) | branch | verify | role |
+|---|---|---|---|---|---|
+| `seed_register_qwen` | Qwen3-1.7B | 1,200 | 3.1% | 26.2% | **Round 0, H_pivot** — unfiltered, must stay representative |
+| `seed_register_qwen14b` | Qwen3-14B-FP8 | 1,200 (623) | 5.9% | 60.1% | scale reference |
+| `seed_register_qwen32b` | Qwen3-32B-NVFP4 | 1,200 (699) | **13.9%** | 70.6% | **teacher corpus** (activity 006) |
+| `seed_register_glm` | GLM-5.2 | 989 (806) | 39.9% | 95.9% | ceiling reference; carries `central_model_deviation` |
+
+All four are `verify_response`-clean (0 failures) with 0 boxed-in-think after
+cleaning, and structurally annotated.
 
 ### What changed from the packet
 
-1. **Δlogp is retired**, not re-thresholded. Any `P(gold | q, compact)` metric
-   is dominated by whether the answer is literally in context, so it cannot
-   separate deriving from asserting. Three measurements, including a fix
-   (`--mask-conclusion`) that was implemented, tested, and failed.
-2. **Two corpora, not one**, with different compressors, consumers and gates —
-   `seed_register_qwen` (1,200; Round 0, H_pivot; **unfiltered**, because those
-   consumers need the student's own distribution) and `seed_register_glm`
-   (989 → 806 gated; Stage-A conditioning; an attested central-model deviation).
-3. **`structural_gate.py` replaces Δlogp** — card §1.4's "never elided" column
+1. **Δlogp retired**, not re-thresholded. Any `P(gold | q, compact)` metric is
+   dominated by whether the answer is literally in context, so it cannot
+   separate deriving from asserting — measured three ways, including a fix
+   (`--mask-conclusion`) that was implemented, tested and failed (findings 9, 11).
+2. **`structural_gate.py` replaces it** — card §1.4's "never elided" column
    measured against each trace's own source, deterministic and model-free.
+3. **Multiple corpora, not one**, with different compressors and consumers.
 
-### The number that should worry the next packet
+### What P3 discovered that P3 could not fix
 
-Qwen3's own compressions are **40% faithful / 40% lossy / 21% wrong** (n=200,
-external judge), dropping a branch on 46% of traces, and the paired comparison
-is stark: branch retention **39.9% (GLM) vs 3.1% (Qwen3)** on identical inputs,
-diverging only above level 3 and reaching 51% vs 0% at level 9.
+Branch preservation — keeping the case splits and rejected alternatives the
+verbose trace contains — is a **capability that appears with scale and cannot be
+transferred by prompting**:
+
+* it scales 3.1% → 5.9% → 13.9% across 1.7B/14B/32B, roughly a doubling per
+  ~2.3× parameters (finding 15);
+* **no prompting channel moves it**: static card exemplars, level-matched
+  retrieval, and demo pools from 14B, 32B and frontier scale all leave the 1.7B
+  at **1–2%** (finding 15);
+* Qwen3-1.7B's own compressions are **40% faithful / 21% wrong**, dropping a
+  branch on 46% of traces (finding 13, n=200, external judge).
 
 This is not a P3 blocker — Round 0 consumes register-*token* statistics and
-wants a representative corpus, which this is. It is a **Stage-A** problem: the
-v2 teacher *is* Qwen3, so Stage A begins from a compressor that destroys branch
-structure, and `G_spike` has to fix that through RL.
+wants a corpus representative of what the student actually produces, which this
+is. It is a **Stage-A** problem, and it is why activity 006 decouples the
+teacher from the student.
 
-### Open, and deliberately so
+### Open
 
-* **Reachability is unmeasured.** The card A/B was killed at 2/200 to free GPU
-  for the Qwen3 corpus. We now know the size of the gap Stage A must close; we
-  do not know whether a card change closes it cheaply. This is a deferral.
+* **The `G_spike` × branch-retention check** (activity 006) — `G_spike` rewards
+  followability, and branch-preserving traces are longer and harder, so
+  best-of-N may select *against* the property the 32B teacher exists to provide.
+  **Gates P5.**
 * **Structural-gate thresholds are provisional.** `branch_kept` is a corpus
-  diagnostic, not a per-record gate, because its source detector fires on 99.5%
-  of traces. Tightening that detector is prerequisite to gating on it.
+  diagnostic, not a per-record gate: its source detector fires on 99.5% of
+  traces, so gating on it becomes an unconditional notation requirement.
+  Tightening the detector is prerequisite.
 * **Think-segment grading needs a register-aware normaliser** (Unicode math ↔
-  LaTeX) before any conclusion-vs-gold check is trustworthy.
-* **The GLM corpus is an attested deviation.** Every record carries
-  `central_model_deviation: true`. Recommendation, on measured grounds
-  (H_pivot 0.9119 on GLM text vs 0.6707 on Qwen3's): teacher conditioning only.
+  LaTeX). The deterministic verifier cannot grade compact-register conclusions
+  because the register writes `4√2` where the verifier expects `4\sqrt{2}`
+  (finding 14). It remains correct where the project uses it — the answer
+  segment, which stays LaTeX.
+* **Stage-B masking fraction is unmeasured** on a teacher corpus wider than the
+  student.
 
 ### For P4
 
-`H_pivot = 0.6707`. Splits are written and must not be re-split. Use
-`seed_register_qwen/{train,heldout_register,probe_pool,verbose_control}.jsonl`.
-Do **not** inoculate the scorer on the GLM corpus. Note also that P4's τ_spike
-correction (packet header) still stands: the 4-nat design placeholder is dead on
-arrival for this checkpoint.
+`H_pivot = 0.6707`. Use
+`seed_register_qwen/{train,heldout_register,probe_pool,verbose_control}.jsonl`
+and **do not re-split** — a re-split under a different seed moves probe traces
+into training and silently invalidates the corrupted-trace probe. Do **not**
+inoculate the scorer on any teacher corpus (14B/32B/GLM): Round 0 calibrates on
+the *student's own* register statistics, and H_pivot reads 0.9119 on GLM text
+against 0.6707 on the student's. P4's τ_spike correction in its packet header
+still stands — the 4-nat design placeholder is dead on arrival for this
+checkpoint.
 
-### Method note
+### Method note — five measurement artifacts, each initially convincing
 
-Five separate measurement artifacts in this packet produced confident, inverted
-results before being caught: step numbers counted as content (twice),
-comma-fusion of step back-references, notation counted as invention, and
-Unicode-vs-LaTeX in conclusion matching. Each initially read as a substantive
-finding about corpus quality. Anything derived from naive string comparison on
-this data should be treated as guilty until audited.
+In order: step numbers counted as content (twice — an ad-hoc probe, then the
+gate's first draft), comma-fusion of step back-references (`from 4,5:` → the
+numeral 45), notation counted as invention, and Unicode-vs-LaTeX in conclusion
+matching. **Every one produced a confident, inverted result**, and two were
+reported to the user as findings before being caught. Separately, two
+single-point over-reads inside the finding-15 sequence (a same-family transfer
+advantage; a marker-density-tracks-pool effect) were retracted when the 32B arm
+broke both.
+
+The standing lesson: on this data, any metric derived from naive string
+comparison between corpora is guilty until audited, and any pattern resting on
+one arm should wait for a second.

@@ -1,6 +1,6 @@
 # 006 — Design decision: decouple teacher from student; Qwen3-32B teacher
 
-- **Packet:** ad-hoc (design decision arising from activity 005 findings 15–18)
+- **Packet:** ad-hoc (design decision arising from activity 005 finding 15)
 - **Status:** decided — implementation gated on the G_spike/branch check below
 - **Decided by:** user, 2026-08-03
 - **Machine(s):** turing (measurements)
@@ -32,7 +32,7 @@ identical inputs and card:
 And, on the same 200 traces, **every** attempt to induce it in the 1.7B by
 prompting failed — static card exemplars, level-matched retrieval, and demo
 pools drawn from 14B, 32B and frontier scale all leave it at **1–2%**
-(activity 005 findings 15–18).
+(activity 005 finding 15).
 
 So at the 1.7B tier Stage-A rollouts would never contain branch-preserving
 compressions, `G_spike` would have nothing to select on that axis, and design
