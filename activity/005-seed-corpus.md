@@ -482,6 +482,63 @@ not better.
 editing a ratified card or putting an external model in the corpus-generation
 path, and both are the user's call.
 
+### 10. GLM-5.2 bootstrap corpus — attested central-model deviation
+
+**User-authorised deviation from v1 §3** (CLAUDE.md: "the compressor is the SAME
+base model that produced the harvest; no external teacher"), taken because
+finding 9 measured Qwen3-1.7B's own compressions at 49% faithful / 22% wrong and
+0% faithful at level 7 — a seed corpus built from those demonstrates the
+register badly.
+
+`scripts/glm_compress.py`, 989/1000 traces, ~50/min, **zero GPU** (API-bound, ran
+alongside the harvest and the card A/B). 11 rate-limit failures, retryable on
+resume. **0 verify failures, 0 boxed-in-think** after cleaning. Diversity
+sampling is round-robin over (level, topic-family) cells rather than
+proportional, so the hard levels are represented rather than buried: 161 at L7,
+166 at L8, 43 at L9.
+
+GLM produces the same answer-trailer artifact as Qwen3 but at **6% vs 54–65%**,
+and `clean_oneshot` removed all of it.
+
+**Deterministic comparison — no judge, so no self-evaluation bias:**
+
+| corpus | n | lines (med) | ratio (med) | **branch kept** | **verification kept** | mark/100ch |
+|---|---|---|---|---|---|---|
+| **GLM-5.2** | 989 | 11 | 0.0298 | **39%** | **95%** | 3.15 |
+| Qwen3 (pilot 50) | 50 | 7 | 0.0185 | 2% | 44% | 1.60 |
+| Qwen3 (A_control) | 88 | 8 | 0.0149 | **1%** | **18%** | 0.93 |
+
+"branch kept" = contains `case ` or `✗`; "verification kept" = contains `chk:` or
+`✓`. These are string counts, not judgements — and they land on exactly the two
+failure modes finding 9 identified (`dropped_branch` 56%, `case ` at ~0%).
+GLM also compresses **2× less aggressively** (0.0298 vs 0.0149), which is direct
+support for over-compression being the mechanism rather than the card's rules.
+
+A level-8 example (`deepmath:60adefee`, 12,755 verbose tokens → 18 lines) keeps
+three case splits with `✗` rejections, every intermediate field-degree
+computation, and a `chk:` line — the register as specified, on a hard problem.
+
+**Where this corpus may be consumed** — stamped on every record
+(`compressor_model`, `central_model_deviation: true`) and in the sidecar:
+
+| consumer | verdict | why |
+|---|---|---|
+| Stage-A teacher conditioning | **safe, arguably better** | in-context demonstrations; Stage-A RL pulls the teacher toward what earns reward under the frozen student scorer regardless |
+| Round-0 scorer inoculation | **unsafe** | Round 0 calibrates the scorer on the *student's own* register statistics; inoculating on an external distribution is the silently-inverted-meter failure CLAUDE.md calls the project's largest risk |
+| H_pivot | **unsafe** | p80 would measure "how surprising is GLM text to Qwen3", not "how surprising is Qwen3's register to Qwen3" — mis-sets the SED gate |
+| Stage-B assimilation | **wasteful** | the ZPD band-pass masks tokens outside the student's reachable zone, so much of it is gated off rather than learned |
+
+**Recommendation: GLM corpus → teacher conditioning; Qwen3 corpus → Round 0 and
+H_pivot.** Both are cheap to keep; the split costs nothing and protects the two
+measurements that are specifically about the student's own distribution.
+
+**What this does not yet establish.** Marker presence is a necessary, not
+sufficient, condition for faithfulness — 39% branch-retention beats 1% but is
+not 100%. Δlogp on the GLM corpus is running. And **reachability is still
+open**: a corpus Qwen3-1.7B cannot imitate is a bad teacher-conditioning target
+no matter how good it looks, which is what the `F_glm_exemplars` A/B arm exists
+to measure.
+
 ---
 
 ## Runbook for the rest of the packet
