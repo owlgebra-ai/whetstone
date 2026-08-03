@@ -1051,6 +1051,54 @@ identical inputs). That showing it to Qwen3 makes Qwen3 compress that way does
 
 ---
 
+### 16. Prompt-level interventions transfer formatting, not comprehension
+
+Extending finding 15 with the level-matched retrieval the packet's phrase
+"teacher conditioning corpus" actually implies: per rollout, draw k=4 worked
+examples from the 806-trace gated GLM pool **at the same level as the problem**
+(widening ±1 level for thin strata). This removes a real defect in the static
+card — its exemplars 1–2 are level-1 problems compressing to a few hundred
+characters, and they ride in *every* prompt, so a level-9 problem was being
+shown short exemplars while being asked for a long faithful rewrite.
+
+Same 200 traces, all arms:
+
+| arm | lines med | ratio med | **branch** | verify | mark/100ch |
+|---|---|---|---|---|---|
+| ratified card | 8 | 0.0202 | 2% | 35% | 1.26 |
+| GLM exemplars in card | 8 | 0.0210 | 1% | 42% | 1.19 |
+| **level-matched demos, k=4** | **9** | **0.0233** | **2%** | **44%** | 1.10 |
+| GLM ceiling | 11 | 0.0298 | **39%** | 95% | 3.15 |
+
+Level-matching *does* beat the static card where the static card did nothing:
+length rises (8 → 9 lines, ratio +15%) and `verify_kept` climbs 35% → 42% → 44%
+across the three arms. **But branch retention does not move: 2% → 1% → 2%,
+against a 39% ceiling.**
+
+**The pattern is the finding.** Every intervention transfers the *surface*
+behaviours — emit a `chk:` line, write somewhat longer — and none transfers the
+*structural* one. Adding a verification line is formatting: the model can copy
+it from a demonstration. Preserving a rejected branch requires noticing that a
+6,500-token trace explored and discarded an approach, then representing that
+compactly — comprehension, not format. No prompt has moved it, and three
+independent prompt channels have now been tried.
+
+**Read as a capability limit, this has a design consequence.** In v2 the teacher
+and the student are the same checkpoint, and design line 77 argues in-context
+conditioning is what puts the target inside the sampling support so GRPO can
+rank it. If a 1.7B cannot produce branch-preserving compressions under *any*
+prompt, then Stage-A rollouts never contain them, `G_spike` has nothing to
+select on that axis, and no amount of RL creates the behaviour. The lever that
+remains is not a better prompt — it is a **more capable compressor**, which is
+why the Qwen3-14B-FP8 arm exists (finding 17).
+
+Caveat: "branch retention" here is the `case `/`✗` marker proxy, whose
+source-side detector over-fires (finding 12). It is a reliable *between-corpus*
+signal — 39% vs 2% is not noise — but it is not a direct measurement of whether
+each individual branch survived.
+
+---
+
 ## Conclusion
 
 **P3 is done, with a materially different shape than the packet specified.** The
