@@ -10,6 +10,14 @@
 > text, so it removed no trailer in either arm. Fixed in activity 005 finding 5;
 > the same 50 traces recompressed now measure 0/50. Do not reuse
 > `final_{A,B}.jsonl` as clean register corpora.
+>
+> **Consequence for the "H_pivot is going to land low" flag below: it does not
+> hold.** That section's 0.2276 was measured on this contaminated corpus, 45% of
+> whose think tokens were runaway loops, boxed trailers and copied indentation —
+> all near-zero-entropy filler. Same 50 traces, cleaned: **p80 = 0.5067**, i.e.
+> 2.2× higher and much closer to the native-trace 0.6923. The knock-on worries
+> about `Δ_max = 0.7` and TEA `τ_c = 1.0` are correspondingly weaker
+> (activity 005 finding 8).
 
 - **Packet:** [packets/P3a-register-bakeoff.md](packets/P3a-register-bakeoff.md)
 - **Status:** done — awaiting user ratification of the card

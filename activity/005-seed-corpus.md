@@ -368,6 +368,43 @@ feedback (packet P3 Part 2) with two items for the user:
    which card §1.3 says must never be silently dropped — has almost no exemplar
    in the conditioning data.
 
+### 8. Activity 004's "H_pivot will land low" flag was mostly corpus contamination
+
+Activity 004 flagged, as a thing for the user to worry about, that arm A's
+compact-register think p80 was **0.2276** against the native-trace 0.6923 — a 3×
+drop — and warned it would interact badly with restoration-mode `Δ_max = 0.7`
+and TEA's `τ_c = 1.0`.
+
+That number was measured on `final_A.jsonl`, which finding 5 has since shown
+carries **10% runaway repetition loops, 40% boxed-answer trailers, and copied
+4-space indentation**. All three are near-zero-entropy filler, and all three
+inflate the token count they are averaged over.
+
+Re-measured on **the same 50 source traces**, recompressed with the ratified
+card and the fixed cleaner:
+
+| entropy audit, same 50 traces | `final_A` (bake-off) | ratified + cleaned |
+|---|---|---|
+| think tokens, total | 21,624 | **11,791** (−45%) |
+| think tokens, median/trace | 176 | 150 |
+| think entropy median | 0.0002 | **0.0022** |
+| **think p80 (H_pivot recipe)** | **0.2276** | **0.5067** |
+| cap-hit (runaway) | 10% | 0% |
+| `</think>` sanity entropy | — | 0.0198 (low ✓, no off-by-one) |
+
+**H_pivot on a clean corpus is 2.2× the preview**, and 45% of the think tokens
+the old measurement averaged over were filler that no longer exists. Against the
+native-trace 0.6923, the compact register is *not* the dramatically more
+deterministic text activity 004 concluded it was — most of that gap was the
+contamination, not the register.
+
+A 12-trace preview on P3's own (longer, 8.8k-verbose) inputs gives 0.667, so the
+real value is likely to land in **≈0.5–0.7**, near native. The binding number is
+still whatever step 8 measures on the full seed corpus; what is established here
+is that **the 0.2276 preview should not be carried forward**, and the design
+concerns activity 004 raised about `Δ_max` and `τ_c` are much weaker than it
+thought.
+
 ---
 
 ## Runbook for the rest of the packet
