@@ -21,6 +21,7 @@ import argparse
 import json
 import math
 import os
+import re
 import sys
 
 import torch
@@ -48,6 +49,33 @@ def _score(model, tokenizer, prompt: str, completion: str,
     return completion_log_probs.sum().item()
 
 
+_CONCLUSION = re.compile(r"^\s*(?:⇒|=>|answer\s*[:=]|final\s+answer)", re.I)
+
+
+def _mask_conclusion(compact: str) -> str:
+    """Drop trailing conclusion lines from a compact trace.
+
+    The plain Δlogp gate asks "does this trace make the gold answer more
+    likely?" — and a trace that simply *states* the answer maximises that. So
+    the gate scores highest on exactly the compression that dropped the
+    derivation and kept the conclusion, which activity 005 finding 9 measured
+    as 17% of gate-passing traces (and, from the other direction, as the more
+    faithful GLM corpus passing *less* often: 58% vs 70%).
+
+    Removing the conclusion inverts that incentive:
+
+      * a trace that only asserted the answer loses everything -> delta ~ 0;
+      * a trace that showed its working still carries the value -> delta high.
+
+    Only *trailing* conclusion lines are removed — a mid-trace ``⇒`` is a
+    derivation step, not the conclusion, and must be preserved.
+    """
+    lines = compact.rstrip().splitlines()
+    while lines and (not lines[-1].strip() or _CONCLUSION.match(lines[-1])):
+        lines.pop()
+    return "\n".join(lines)
+
+
 def parse_args(argv=None):
     ap = argparse.ArgumentParser(description="WHETSTONE §3.6 Δlogp sufficiency gate")
     ap.add_argument("--input", required=True, help="Stage 2 compactB.jsonl")
@@ -57,6 +85,10 @@ def parse_args(argv=None):
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--compact-field", default="compact_think",
                     help="record field holding the compact think segment")
+    ap.add_argument("--mask-conclusion", action="store_true",
+                    help="Strip the trailing conclusion line(s) before scoring. "
+                         "Turns the metric from 'is the answer present' into "
+                         "'is the DERIVATION sufficient' — see _mask_conclusion.")
     ap.add_argument("--attn", default="sdpa",
                     help="attn_implementation; flash_attention_2 is not installed "
                          "on either v2 box")
@@ -108,6 +140,8 @@ def main(argv=None):
             # v2 records name the field `compact_think` (the register governs
             # the think segment only); v1's flat `compact` is still accepted.
             compact = r.get(args.compact_field) or r.get("compact", "")
+            if args.mask_conclusion:
+                compact = _mask_conclusion(compact)
             gold = r.get("ground_truth", "")
             if not compact or not gold:
                 continue
