@@ -1099,6 +1099,91 @@ each individual branch survived.
 
 ---
 
+### 17. Demo quality and demo reachability are anti-correlated — Qwen3-14B-FP8 arm
+
+Tests whether a **same-family, larger** compressor beats a frontier model from
+another lab, on the reasoning that an identical tokenizer and pretraining should
+make its output both distributionally nearer (usable for H_pivot) and more
+imitable (fixing finding 16). Qwen3-14B-FP8 served on the 5090 at
+`gpu-memory-utilization 0.92` (76,768-token KV cache, ~12 concurrent), same
+1,200 inputs, same ratified card.
+
+**As a compressor** — paired on 989 problems:
+
+| | branch | verify | val_cov | lines | mark/100ch |
+|---|---|---|---|---|---|
+| Qwen3-14B-FP8 | **5.9%** | 60.1% | 0.625 | 10 | **0.82** |
+| GLM-5.2 | **39.9%** | 95.9% | 0.667 | 11 | 3.15 |
+| Qwen3-1.7B | 3.1% | 26.2% | 0.500 | 8 | 1.22 |
+
+Scale within the family buys verification (26% → 60%) and value coverage
+(0.50 → 0.625) but **not branch preservation** (3.1% → 5.9%), and register
+adoption *drops* (1.22 → 0.82) — a stronger model has stronger stylistic priors
+and follows the card's notation less slavishly, writing semi-prose
+("Given:", "By independence,", "Therefore,").
+
+Per level, the difference is qualitative rather than one of degree:
+
+| level | 3 | 5 | 7 | 8 | 9 |
+|---|---|---|---|---|---|
+| 14B | 4% | 4% | 7% | 5% | 5% |
+| GLM | **39%** | **34%** | **42%** | **48%** | **51%** |
+| 1.7B | 0% | 4% | 2% | 2% | 0% |
+
+**GLM's branch retention rises with difficulty; 14B's is flat, like the 1.7B's.**
+Only GLM notices that harder problems contain more case analysis.
+
+**As a demo pool** — level-matched k=4 into the 1.7B, same 200 traces:
+
+| arm | lines | ratio | branch | verify | mark/100ch |
+|---|---|---|---|---|---|
+| ratified card | 8 | 0.0202 | 2% | 35% | 1.26 |
+| GLM demos k=4 | 9 | 0.0233 | 2% | 44% | 1.10 |
+| **14B demos k=4** | 8 | 0.0245 | 1% | **49%** | **0.85** |
+| GLM pool | 11 | 0.0298 | 39% | 95% | 3.15 |
+| 14B pool | 10 | 0.0382 | 3% | 64% | 0.92 |
+
+**Family proximity does improve transfer.** The 14B pool is *weaker* than GLM
+(64% vs 95% verify) yet transferred *more* verification (49% vs 44%). The
+clearest signal is marker density: with 14B demos the student lands at 0.85,
+tracking its pool's 0.92; with GLM demos it sits at 1.10 against a pool at 3.15.
+Same-family demonstrations are imitated; cross-family ones are not — including
+the pool's faults, since the student also drifted toward 14B's semi-prose and
+away from the register.
+
+**The binding result: the two properties a demo pool needs are anti-correlated
+across everything available.**
+
+* **GLM** has branch preservation (39.9%) and is too distant to imitate;
+* **14B** is close enough to imitate and does not have it (5.9%).
+
+Every route leaves the 1.7B at 1–2% branch retention. **This cannot be fixed by
+choosing a better demonstration source.**
+
+**Design consequence, and it is not a P3 issue.** v2 makes teacher and student
+the same checkpoint, and design line 77 relies on in-context conditioning to put
+the target inside the sampling support so GRPO can rank it. At the 1.7B tier
+that fails for branch preservation under every prompt channel tried (static
+exemplars, level-matched retrieval, two different pools). Stage-A rollouts would
+not contain the behaviour, so `G_spike` cannot select for it. The remaining
+levers are architectural, not prompt-level:
+
+1. run Stage A at the **4B/8B tier**, where the teacher may be able to do what
+   the 1.7B cannot (CLAUDE.md already gates 4B/8B behind F1–F4);
+2. **decouple teacher from student** — a larger teacher compressing for a
+   smaller student, which is a real departure from the v2 design;
+3. accept that the 1.7B register will not preserve branches and re-scope what
+   `G_spike` is expected to reward.
+
+**Caveats.** `branch_kept` is the `case `/`✗` marker proxy, and 14B's prose style
+may under-count genuine branch preservation — that would flatter GLM. FP8 is
+weight quantization; it is a compressor-only path and never touches the student
+or scorer. And 14B's raw output triggered `boxed_in_think` on **65.6%** of
+traces (vs GLM 3%, 1.7B 2.4%) — all cleaned, 0/1200 surviving, but its
+unprompted §1.5 compliance is markedly worse.
+
+---
+
 ## Conclusion
 
 **P3 is done, with a materially different shape than the packet specified.** The
