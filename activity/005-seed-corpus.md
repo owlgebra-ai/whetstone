@@ -405,6 +405,83 @@ is that **the 0.2276 preview should not be carried forward**, and the design
 concerns activity 004 raised about `Δ_max` and `τ_c` are much weaker than it
 thought.
 
+### 9. Faithfulness audit — the Δlogp gate cannot see the failure that matters
+
+Every automated check in the compression pipeline is orthogonal to
+faithfulness. `verify_response` grades the **answer segment**, which is copied
+through untouched — it would pass on an empty `compact_think`. Marker density,
+compression ratio and entropy p80 measure style, size and predictability. Δlogp
+is the only content signal and it is a low bar: `delta > 0` means "better than
+no trace at all".
+
+So `scripts/faithfulness_audit.py` was built (external LLM judge, GLM-5.2 via an
+Anthropic-compatible endpoint — a deliberate, logged exception to the
+central-model principle; **evaluation only, no judge output enters the corpus**).
+Pilot: 49 of the 50 bake-off traces recompressed with the ratified card.
+
+**Judge sanity check first.** It independently flagged both exemplar-leaked
+traces found by hand (`deepmath:420f2cf4`, `deepmath:5f402961`) *and* the
+repetition-degenerate one — with correct explanations ("solves an entirely
+different optimization/coordinate geometry problem; verbose trace is about
+hexagon area sectors"). It is detecting, not confabulating.
+
+**Headline: 49% faithful, 29% lossy, 22% wrong**, and strongly level-dependent:
+
+| level | n | faithful | lossy | wrong |
+|---|---|---|---|---|
+| 1 | 15 | **87%** | 7% | 7% |
+| 4 | 3 | 67% | 33% | 0% |
+| 5 | 7 | 43% | 14% | 43% |
+| 6 | 13 | 31% | 31% | 38% |
+| 7 | 5 | **0%** | 100% | 0% |
+| 8 | 6 | 33% | 33% | 33% |
+
+Compression is reliable on level-1 gsm8k and degrades badly from level 5 up.
+
+**Cross-tabulated against the Δlogp gate on the same 50 traces:**
+
+| Δlogp | n | faithful | lossy | wrong |
+|---|---|---|---|---|
+| **pass** | 34 | 58% | 23% | **17%** |
+| fail | 15 | 26% | 40% | 33% |
+
+Flag rates **among gate-passing traces**: `dropped_branch` 56%,
+`dropped_values` 21%, `invented_content` 15%.
+
+**The gate is real but structurally blind to one failure mode.** It catches the
+catastrophic class — both off-topic exemplar-leak traces failed it — and
+gate-passing traces are 2.2× more likely to be faithful (58% vs 26%). But the
+six unfaithful traces that *pass* are all the same shape:
+
+> "asserts step 5 without the generating-function derivation that justifies it"
+> "compact starts from x=2,y=4 with no derivation"
+> "all modular constraints, rejected values and bounding logic are absent; only
+> the verification remains"
+
+Δlogp asks whether the compact trace **helps predict the gold answer**. A trace
+that states the *conclusion* and drops the *derivation* helps predict the answer
+perfectly well — better, if anything. **The sufficiency gate optimizes for
+exactly the property that makes this class of trace unfaithful**, so no
+threshold on it can separate them. This is a structural limit, not a tuning
+problem.
+
+That matters beyond P3: a corpus that teaches "assert the conclusion, skip the
+derivation" is seeding the pipeline with the *unfollowable leap* that Stage-A's
+`G_spike` (β high) exists to penalize, and `dropped_branch` at 56% is a direct
+card §1.4 violation ("branch elimination is reasoning, and it stays") —
+consistent with `case `/`✗` appearing in ~0% of traces (finding 7).
+
+**Caveats, stated plainly.** n=49, one corpus, one judge. The judge's
+false-positive rate is unmeasured — the card permits dropping "repeated
+re-derivations of the same result", and some `dropped_branch` flags may be
+counting those. And these are the *bake-off's* 5.4k-token traces; P3's own
+inputs are 8.8k and compress 1.7× harder, so the real corpus is likely worse,
+not better.
+
+**Escalated to the user — not resolved unilaterally.** Fixing it means either
+editing a ratified card or putting an external model in the corpus-generation
+path, and both are the user's call.
+
 ---
 
 ## Runbook for the rest of the packet
