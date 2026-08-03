@@ -640,6 +640,50 @@ Corpus roles, settled:
 | `seed_register_qwen` | Qwen3-1.7B | Round-0 inoculation, H_pivot, verbose control | structural checks **reported, not filtered** — representativeness is the point |
 | `seed_register_glm` | GLM-5.2 | Stage-A teacher conditioning | filter on `structural_pass` |
 
+### 13. Qwen3 corpus faithfulness at n=200 — pilot confirmed, gradient sharpened
+
+GLM judging **Qwen3's** output (not self-evaluation), 200 traces on the real P3
+inputs rather than the pilot's 49 bake-off traces.
+
+| | pilot (n=49) | n=200 |
+|---|---|---|
+| faithful | 49% | **40%** |
+| lossy | 29% | 40% |
+| **wrong** | 22% | **21%** |
+
+`dropped_branch` 46.3%, `fused_steps` 34.5%, `dropped_values` 18.6%,
+`invented_content` 16.4%, `off_topic` 3.4% (the exemplar-leak class persists at
+roughly the rate the string-matching audit found).
+
+| level | 1 | 4 | 5 | 6 | 7 | 8 | 9 |
+|---|---|---|---|---|---|---|---|
+| faithful | 76% | 36% | 26% | 37% | 31% | **21%** | 29% |
+| wrong | 11% | 9% | 26% | 15% | 23% | **39%** | 29% |
+
+**The pilot's "0% faithful at level 7" was n=5 noise** — the real shape is a
+steady decline bottoming at level 8, not a cliff. Worth correcting because that
+number was quoted as the headline motivation for the whole card A/B.
+
+The failure mode is worse than omission. In several cases the compact trace
+**adopts what the verbose trace rejected**:
+
+> "Verbose reaches [P(8,k)]² and answer 8; compact uses C(8,k)²×k!, a rejected
+> formula, yielding 6."
+> "Verbose self-corrects and rejects the binary strategy as invalid; compact
+> adopts it, inventing the final answer."
+
+That is `dropped_branch` at its most harmful: not losing the rejection, but
+keeping the rejected thing and building on it. It also explains why
+`invented_content` and `dropped_branch` co-occur.
+
+**What this does and does not change.** It does **not** disqualify the Qwen3
+corpus for Round 0 / H_pivot: those consume register-*token* statistics and need
+the student's own distribution, and a 21%-unfaithful corpus is an accurate
+picture of what this student produces — which is the point. It **does** sharpen
+the Stage-A concern: the v2 teacher *is* Qwen3, so Stage A starts from a
+compressor that drops a branch on ~46% of traces, and `G_spike` has to do that
+work through RL.
+
 ---
 
 ## Runbook for the rest of the packet (revised — findings 9–12)
