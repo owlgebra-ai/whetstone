@@ -347,6 +347,49 @@ def clean_oneshot(text: str) -> tuple[str, list[str]]:
     return "\n".join(ln[indent:] for ln in out), flags
 
 
+DEMO_HEADER = """
+WORKED EXAMPLES — real compressions of problems at this same difficulty. Match
+their level of detail: notice how many lines they use, that every case tried and
+every rejection (`✗`) survives, and that the rewrite is as long as the reasoning
+requires.
+"""
+
+DEMO_TMPL = """
+--- EXAMPLE {i} (verbose original: {ntok:,} tokens -> {lines} lines) ---
+PROBLEM: {problem}
+
+COMPACT REWRITE:
+{compact}
+"""
+
+
+def build_demo_block(demos: list[dict]) -> str:
+    """Render level-matched worked examples for the compressor's prompt.
+
+    Why level-matched rather than a fixed set: the card's own exemplars 1–2 are
+    level-1 problems compressing to a few hundred characters, and they are
+    present for *every* problem the compressor ever sees — including level 9. A
+    hard problem is therefore shown short exemplars while being asked to produce
+    a long faithful rewrite. Finding 15 measured that a fixed spread of
+    long-trace exemplars changes nothing; this removes the contradiction instead
+    of diluting it, by showing only examples from the regime the model is in.
+
+    The demo's verbose source is summarised by its token count rather than
+    included: at a ~6.5k-token median, four verbose traces would not fit
+    alongside the trace actually being compressed.
+    """
+    if not demos:
+        return ""
+    body = "".join(
+        DEMO_TMPL.format(i=i + 1, ntok=d.get("verbose_think_tokens") or 0,
+                         lines=len([l for l in d["compact_think"].splitlines()
+                                    if l.strip()]),
+                         problem=d.get("prompt", "")[:400],
+                         compact=d["compact_think"])
+        for i, d in enumerate(demos))
+    return DEMO_HEADER + body
+
+
 def build_oneshot_prompt(tokenizer, system_prompt: str, problem: str,
                          thinking: str) -> str:
     """Whole think segment in, whole compact register out.
@@ -478,8 +521,10 @@ def _run_oneshot_server(args, problems, tokenizer, system_prompt, meta) -> int:
 
     bodies = [{
         "model": args.model,
-        "prompt": build_oneshot_prompt(tokenizer, system_prompt, p["prompt"],
-                                       p["thinking_original"]),
+        "prompt": build_oneshot_prompt(
+            tokenizer,
+            system_prompt + build_demo_block(demo_index.get(p["uid"], [])),
+            p["prompt"], p["thinking_original"]),
         "max_tokens": args.max_tokens_oneshot,
         "temperature": args.temperature,
         "top_p": args.top_p,
@@ -616,6 +661,13 @@ def parse_args(argv=None):
     ap.add_argument("--temperature", type=float, default=0.4)
     ap.add_argument("--top-p", type=float, default=0.95)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--demo_pool", default=None,
+                    help="JSONL of high-quality compressions to draw worked "
+                         "examples from, matched to each problem's LEVEL. The "
+                         "card's fixed exemplars cannot be level-matched — they "
+                         "ride in every prompt regardless of difficulty.")
+    ap.add_argument("--demos_k", type=int, default=4)
+    ap.add_argument("--demo_seed", type=int, default=0)
     ap.add_argument("--server", default=None,
                     help="Base URL of a running `vllm serve`, e.g. "
                          "http://127.0.0.1:8000/v1 . oneshot mode only. Streams "
@@ -732,6 +784,28 @@ def main(argv=None):
             p["chunks"] = [p["thinking_original"]]
             p["n_chunks"] = 1
             p["compacts_per_chunk"] = [None]
+
+    demo_index = {}
+    if args.demo_pool:
+        import random as _random
+        from collections import defaultdict as _dd
+        pool = _dd(list)
+        for _l in open(args.demo_pool):
+            _r = json.loads(_l)
+            if _r.get("compact_think"):
+                pool[str(_r.get("level"))].append(_r)
+        rng = _random.Random(args.demo_seed)
+        for p in problems:
+            lvl = str(p.get("level"))
+            cands = [d for d in pool.get(lvl, []) if d["_uid"] != p["uid"]]
+            if len(cands) < args.demos_k:      # thin stratum: widen by +/-1 level
+                for alt in (str(int(lvl) - 1), str(int(lvl) + 1)) if lvl.isdigit() else ():
+                    cands += [d for d in pool.get(alt, []) if d["_uid"] != p["uid"]]
+            demo_index[p["uid"]] = rng.sample(cands, min(args.demos_k, len(cands)))
+        _n = [len(v) for v in demo_index.values()]
+        print(f"[demos] level-matched from {args.demo_pool}: "
+              f"{sum(_n)/max(1,len(_n)):.1f} per problem "
+              f"(min {min(_n) if _n else 0}, k={args.demos_k})", flush=True)
 
     if args.server:
         if args.mode != "oneshot":
