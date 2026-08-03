@@ -1,5 +1,16 @@
 # 004 — P3a: register bake-off, symbolic (A) vs telegraphic/caveman (B)
 
+> **CORRECTION (activity 005, 2026-08-02).** The M5 section below reports the
+> `**Final Answer** … \boxed{…}`-inside-`<think>` violation as an **arm-B**
+> failure and does not report it for arm A. **Arm A has it at 20/50 = 40%**
+> (B: 41/50 = 82%), so `final_A.jsonl` is contaminated and the "§1.5 violation"
+> row is not an A-vs-B discriminator — only a 2× difference on a defect both
+> arms share. **The verdict is unaffected** (decided by register adoption, 15×).
+> Cause: v1's `clean_oneshot` only stripped a code fence at the very end of the
+> text, so it removed no trailer in either arm. Fixed in activity 005 finding 5;
+> the same 50 traces recompressed now measure 0/50. Do not reuse
+> `final_{A,B}.jsonl` as clean register corpora.
+
 - **Packet:** [packets/P3a-register-bakeoff.md](packets/P3a-register-bakeoff.md)
 - **Status:** done — awaiting user ratification of the card
 - **Machine(s):** mac (code), turing (compression, entropy), spark (Δlogp, style tax)

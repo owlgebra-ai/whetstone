@@ -215,10 +215,29 @@ violation, the contamination Stage C's answer-segment KL exists to prevent, and
 precisely the failure that disqualified **arm B** in the bake-off, now appearing
 in arm A.
 
-The cause is the card's own ratification. Activity 004 required the exemplars be
-un-indented; they became ` ``` ` fenced blocks. The model imitates the fence
-faithfully — opens it, writes the register, **closes it**, and then continues in
-its native markdown voice:
+**The trailer is the model's native habit and it predates ratification.**
+Measured across all three corpora:
+
+| corpus | card | `\boxed{}` in compact think |
+|---|---|---|
+| bake-off `final_A.jsonl` (**accepted by activity 004**) | old, indented exemplars | **20/50 = 40%** |
+| bake-off `final_B.jsonl` | arm B | 41/50 = 82% |
+| same 50 traces, ratified card + fixed cleaner | new | **0/50 = 0%** |
+
+**This is a correction to activity 004.** Its M5 review reported the
+`**Final Answer** … \boxed{…}`-inside-think violation as an **arm-B** failure
+("B's traces … many end with `**Final Answer** … \boxed{…}` *inside* `<think>`,
+which card §1.5 forbids outright"), and did not report it for arm A. Arm A had
+it at 40%. B is genuinely twice as bad, and the bake-off **verdict is
+unaffected** — that was decided by register adoption (15×), not by this axis —
+but the specific claim that A was clean here was wrong, and **the arm-A corpus
+activity 004 shipped is contaminated at 40%**.
+
+What ratification changed is the trailer's *shape*, not its existence. With
+indented exemplars the model appended the trailer as bare text; with fenced
+exemplars it closes the fence first and then appends. v1's `clean_oneshot`
+removed neither — it stripped a fence only at the very end of the text, which
+matches neither case:
 
 ```
 ⇒ Yes
@@ -227,11 +246,10 @@ its native markdown voice:
 \boxed{Yes}
 ```
 
-v1's `clean_oneshot` stripped a fence only at the very *end* of the text, which
-is exactly the case that does not occur. The closing fence is now treated as a
-hard end-of-register marker wherever it appears, with a fallback cut at an
-un-fenced final-answer flourish (1 of the 7 had no fence at all, just
-`### **Final Answer**` + `$$\boxed{a}$$`).
+The closing fence is now treated as a hard end-of-register marker wherever it
+appears, with a fallback cut at an un-fenced final-answer flourish — which is
+the form the bake-off corpus carries (1 of the 7 P3 cases had no fence either,
+just `### **Final Answer**` + `$$\boxed{a}$$`).
 
 Re-run on the same traces with the fix: **0/10 `think_has_boxed`**, 5 trailers
 cut, and register marker density **4.23 per 100 compact think tokens** against
