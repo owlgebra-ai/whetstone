@@ -71,7 +71,12 @@ VERBOSE_VERIFY = re.compile(
 COMPACT_BRANCH = re.compile(r"(?:^|\s)(?:case\b|✗)", re.M)
 COMPACT_VERIFY = re.compile(r"(?:^|\s)(?:chk:|✓)", re.M)
 
-NUM = re.compile(r"-?\d+(?:\.\d+)?")
+#: Thousands-grouped first, then plain. Matching in this order matters: a
+#: blanket ``replace(",", "")`` fuses step back-references — the register's
+#: own ``from 4,5:`` becomes the numeral 45 — which then reads as invented
+#: content. That artifact scales with how much derivation structure a rewrite
+#: shows, so it penalised exactly the traces it should reward.
+NUM = re.compile(r"-?\d{1,3}(?:,\d{3})+(?:\.\d+)?|-?\d+(?:\.\d+)?")
 STEP = re.compile(r"(?m)^\s*(?:\d+[.)]|[-*])\s|=")
 #: Line-leading step markers ("3.", "12)"). The register numbers its steps, so
 #: a longer — i.e. more faithful — rewrite mechanically introduces more of these
@@ -83,7 +88,7 @@ STEP_NUM = re.compile(r"(?m)^\s*\d+[.)]\s")
 def _nums(t: str, strip_step_numbers: bool = False) -> list[str]:
     if strip_step_numbers:
         t = STEP_NUM.sub("", t)
-    return NUM.findall(t.replace(",", ""))
+    return [m.replace(",", "") for m in NUM.findall(t)]
 
 
 def features(r: dict) -> dict:
