@@ -60,4 +60,5 @@ Every packet starts with a status line: `STATUS: draft | ready | in-progress (ac
 | 002 | [002-data-pools.md](002-data-pools.md) | P1: DeepMath-103K + GSM8K pool, SCA arm, 7 eval suites, standard_eval_300, contamination check | done |
 | 003 | [003-preconditions.md](003-preconditions.md) | P2: Qwen3 segment parser + tests, entropy audit (**restoration mode**), calibration probe (dropped v1 system prompt), register card staged | done |
 | 004 | [004-register-bakeoff.md](004-register-bakeoff.md) | P3a: register bake-off A (symbolic) vs B (caveman) — **A wins**; v1 chunkwise compression retired for one-shot | done |
+| 006 | [006-teacher-student-decoupling.md](006-teacher-student-decoupling.md) | **Design decision:** teacher decoupled from student; **Qwen3-32B-NVFP4 teacher**, 1.7B student/scorer; Stage A becomes best-of-N selection, not GRPO | decided |
 | 005 | [005-seed-corpus.md](005-seed-corpus.md) | P3: seed harvest (9,000 rollouts, 77.1% verify) + **two** register corpora (Qwen3 + GLM-5.2 bootstrap); Δlogp retired for a structural gate; **H_pivot = 0.6707** | done |

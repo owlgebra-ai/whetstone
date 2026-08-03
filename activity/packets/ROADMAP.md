@@ -18,6 +18,17 @@ P0 env ──► P1 data ──► P2 preconditions ──► P3a register bake-
 
 Only **P0–P4 are written in full detail**. P5–P7 are deliberately outlines: the design (§11, §12.6) gates them on F1's measured values (τ_spike, τ_leap, λ/β behavior, H_pivot) — writing their fine detail now would bake in numbers F1 exists to pin. **Expand each into a full packet only when its gate opens**, folding in the activity-file learnings from the packets before it.
 
+> ⚠️ **SUPERSEDED IN PART by activity 006 (2026-08-03).** Teacher and student
+> are **decoupled**: the teacher is **Qwen3-32B-NVFP4**, the student/scorer stays
+> Qwen3-1.7B. Branch preservation is a scale-dependent capability (3.1% → 5.9% →
+> 13.9% at 1.7B/14B/32B) that **no prompting channel transfers** (four demo-pool
+> configurations, all 1–2%), so a 1.7B teacher's rollouts would never contain it
+> and `G_spike` could not select on it. A 32B teacher cannot be GRPO-trained on
+> one 32 GB card, so **Stage A becomes generate-and-select**: sample K, score
+> with the unchanged `R_acc · G_spike · G_budget` under the frozen 1.7B scorer,
+> keep the best. Gated on the `G_spike` × branch-retention correlation check in
+> activity 006 — the reward may select *against* the property the decision buys.
+
 ## P5 — Stage A: compression-teacher GRPO (draft outline; expand after F1)
 
 - Design §3 + §12.2. Teacher = fresh Qwen3-1.7B copy, register card + exemplars + gold (+ verbose trace) **in context**; student-style prompt untouched.
