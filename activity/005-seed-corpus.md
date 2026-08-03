@@ -1184,6 +1184,77 @@ unprompted §1.5 compliance is markedly worse.
 
 ---
 
+### 18. Qwen3-32B-NVFP4 — scale DOES buy branch preservation; demonstration still does not
+
+Corrects finding 17, which concluded from 14B alone that scale within the family
+does not buy branch preservation. With a 32B point the curve is clear.
+
+**As compressors** — paired, 989 shared problems, same inputs and card:
+
+| | branch | verify | val_cov | lines | mark/100ch |
+|---|---|---|---|---|---|
+| Qwen3-1.7B | 3.1% | 26.2% | 0.500 | 8 | 1.22 |
+| Qwen3-14B-FP8 | 5.9% | 60.1% | 0.625 | 10 | 0.82 |
+| **Qwen3-32B-NVFP4** | **13.9%** | **70.6%** | 0.600 | 9 | **2.10** |
+| GLM-5.2 | 39.9% | 95.9% | 0.667 | 11 | 3.15 |
+
+Branch retention scales 3.1 → 5.9 → 13.9% — roughly a doubling per ~2.3×
+parameters. Extrapolated, matching GLM's 39.9% needs ~2 further doublings
+(order 10²B), consistent with GLM-5.2 being frontier-scale. **14B was a weak
+point on two axes at once** (branch barely moved, marker density dipped to
+0.82); 32B recovers both, so finding 17's "scale does not buy it" was an
+artifact of a single mid-size sample.
+
+Per level, one difference persists: 32B is **flat at 13–18% across L3–L9**,
+while GLM *rises* 39% → 51% with difficulty. Scale raises the floor; only GLM
+adapts to how much case analysis a problem contains. At level 1 all four sit at
+6–9%, which is evidence the metric tracks something real rather than style.
+
+Served on one 5090: `quantization=modelopt_fp4`, NVIDIA's checkpoint ships
+`kv_cache_dtype=fp8_e4m3`, 64,224-token KV cache, ~22 traces/min at concurrency
+8.
+
+**As a demo pool — no configuration moves the student.** Level-matched k=4 into
+the 1.7B, same 200 traces:
+
+| arm | branch | verify | mark/100ch |
+|---|---|---|---|
+| ratified card (no demos) | 2% | 35% | 1.26 |
+| GLM demos | 2% | 44% | 1.10 |
+| 14B demos | 1% | 49% | 0.85 |
+| **32B demos** | **2%** | **40%** | 1.17 |
+| *32B pool (ceiling)* | *10%* | *74%* | *2.19* |
+| *GLM pool (ceiling)* | *39%* | *95%* | *3.15* |
+
+**Two claims from finding 17 are retracted.** (a) "Same-family demos transfer
+verification better" rested on 14B's 49% vs GLM's 44%; 32B — same family and a
+better source — gives 40%. The 40–49% spread is within noise at n=199
+(SE ≈ 3.5pp). (b) "Student marker density tracks the pool" held for 14B
+(0.85 vs 0.92) and fails for 32B (1.17 vs 2.19). Both were single-point reads.
+
+**What survives is stronger for the correction:** branch retention is **1–2%
+under every configuration tried** — no demos, static card exemplars,
+level-matched retrieval from three pools spanning 14B, 32B and frontier scale.
+Four pool configurations, one answer. The anti-correlation framing of finding 17
+was also wrong: 32B has *both* proximity and a better source, and still moves
+nothing. The correct statement is simpler — **prompting does not move this
+behaviour at the 1.7B tier at all**, regardless of what it is shown.
+
+**Consequence for the design decision.** Combining the two halves: branch
+preservation is a *capability* that appears with scale (3% → 14% from 1.7B to
+32B) and cannot be transferred by demonstration. So the levers narrow to one:
+
+* ~~better demonstrations~~ — four pools, no effect;
+* ~~4B/8B tier~~ — interpolating the curve puts it at ~4%, barely above the
+  1.7B, so the CLAUDE.md tier gate does not resolve this either;
+* **decouple teacher from student** — a 32B teacher reaches 13.9% and fits on
+  one 5090 in NVFP4. This is a real departure from v2 (teacher and student are
+  the same checkpoint) and is now the only lever the data supports;
+* or **re-scope `G_spike`** so it is not asked to reward a behaviour the
+  student's rollouts never contain.
+
+---
+
 ## Conclusion
 
 **P3 is done, with a materially different shape than the packet specified.** The
