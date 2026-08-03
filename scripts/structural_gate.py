@@ -73,15 +73,23 @@ COMPACT_VERIFY = re.compile(r"(?:^|\s)(?:chk:|✓)", re.M)
 
 NUM = re.compile(r"-?\d+(?:\.\d+)?")
 STEP = re.compile(r"(?m)^\s*(?:\d+[.)]|[-*])\s|=")
+#: Line-leading step markers ("3.", "12)"). The register numbers its steps, so
+#: a longer — i.e. more faithful — rewrite mechanically introduces more of these
+#: integers. Counting them as content made the *better* corpus look like it
+#: invented more numbers (0.25 vs 0.083 before this was stripped).
+STEP_NUM = re.compile(r"(?m)^\s*\d+[.)]\s")
 
 
-def _nums(t: str) -> list[str]:
+def _nums(t: str, strip_step_numbers: bool = False) -> list[str]:
+    if strip_step_numbers:
+        t = STEP_NUM.sub("", t)
     return NUM.findall(t.replace(",", ""))
 
 
 def features(r: dict) -> dict:
     verbose, compact = r.get("verbose_think", ""), r.get("compact_think", "")
-    vn, cn = _nums(verbose), set(_nums(compact))
+    vn = _nums(verbose)
+    cn = set(_nums(compact, strip_step_numbers=True))
 
     # Load-bearing quantities: values the verbose trace keeps returning to.
     # A number mentioned once is usually incidental (a coordinate, an index);
