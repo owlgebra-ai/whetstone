@@ -107,10 +107,13 @@ def _append_exemplars(text: str, exemplars: list[dict]) -> str:
                              ntok=e["verbose_think_tokens"],
                              lines=e["exemplar_lines"], body=e["exemplar"])
         for i, e in enumerate(exemplars))
-    m = re.search(r"(?m)^---\n\n## 4\.", text)
+    # The `---` rule belongs to the *previous* exemplar's body, so dropping the
+    # trailing exemplars takes it with them. Anchor on §4 itself and treat the
+    # rule as optional.
+    m = re.search(r"(?m)^(?:---\n\n)?## 4\.", text)
     if not m:
         raise SystemExit("[variants] §4 boundary not found; cannot append exemplars")
-    return text[:m.start()] + blocks + "\n" + text[m.start():]
+    return text[:m.start()].rstrip() + "\n" + blocks + "\n---\n\n" + text[m.start():].lstrip("-\n")
 
 
 def main() -> int:
