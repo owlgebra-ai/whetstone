@@ -724,34 +724,44 @@ Two rules carried from the findings, easy to violate by habit:
   **0.9119** on GLM text vs **0.5067** on Qwen3's own — 1.8×, and *above* even
   the native-verbose 0.6923.
 
-## Partial results (harvest at 2,043 / 9,000 rollouts)
+## Part 1 result — full seed harvest, 9,000 / 9,000 rollouts, 0 failures
 
-Sanity check against the activity-003 probe before burning the rest of the GPU
-time, as the packet requires.
+Completed 2026-08-03 after ~7h and three deliberate restarts (one mandated
+resume test, one to add `--shuffle`, one to raise concurrency). Zero failed
+requests across the whole run; `seed_harvest.jsonl.failed.jsonl` is empty.
 
 | level | problems | rollouts | verify | solve@K | gate | usable | cap-hit | think med | answer med |
-|---|---|---|---|---|---|---|---|---|---|---|
-| 2 | 2 | 4 | 100.0% | 100.0% | 100.0% | 100.0% | 0.0% | 4115 | 585 |
-| 3 | 32 | 64 | 68.8% | 68.8% | 100.0% | 68.8% | 0.0% | 4770 | 814 |
-| 4 | 56 | 112 | 80.4% | 85.7% | 100.0% | 80.4% | 0.0% | 4592 | 729 |
-| 5 | 211 | 421 | 77.0% | 83.9% | 99.8% | 77.0% | 0.2% | 7204 | 808 |
-| 6 | 305 | 608 | 76.3% | 85.6% | 99.5% | 76.3% | 0.5% | 7572 | 831 |
-| 7 | 177 | 354 | 73.5% | 83.0% | 99.2% | 73.2% | 0.9% | 8725 | 868 |
-| 8 | 178 | 356 | 61.2% | 71.4% | 99.4% | 61.0% | 0.6% | 9080 | 831 |
-| 9 | 61 | 122 | 51.6% | 63.9% | 100.0% | 51.6% | 0.0% | 9376 | 806 |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 | 901 | 1802 | 92.8% | 94.8% | 100.0% | 92.8% | 0.0% | 1344 | 281 |
+| 2 | 5 | 10 | 100.0% | 100.0% | 100.0% | 100.0% | 0.0% | 4115 | 476 |
+| 3 | 115 | 230 | 77.8% | 80.0% | 100.0% | 77.8% | 0.0% | 3465 | 584 |
+| 4 | 226 | 452 | 78.8% | 83.6% | 99.6% | 78.8% | 0.4% | 5566 | 746 |
+| 5 | 725 | 1450 | 77.0% | 84.1% | 99.9% | 77.0% | 0.3% | 6565 | 809 |
+| 6 | 1124 | 2248 | 77.3% | 85.1% | 99.5% | 77.3% | 0.6% | 7655 | 848 |
+| 7 | 569 | 1138 | 74.4% | 82.8% | 99.6% | 74.3% | 0.4% | 8010 | 843 |
+| 8 | 646 | 1292 | 64.2% | 74.5% | 99.9% | 64.2% | 0.1% | 9285 | 836 |
+| 9 | 188 | 376 | 50.5% | 66.5% | 100.0% | 50.5% | 0.0% | 9290 | 838 |
 | 10 | 1 | 2 | 0.0% | 0.0% | 100.0% | 0.0% | 0.0% | 7677 | 866 |
-| **ALL** | **1023** | **2043** | **71.8%** | **80.5%** | **99.6%** | **71.7%** | **0.4%** | **7800** | **828** |
+| **ALL** | **4500** | **9000** | **77.1%** | **84.1%** | **99.8%** | **77.1%** | **0.3%** | **6363** | **748** |
 
-**Verdict: healthy, run continues.** 71.8% against the probe's 73% is 1.2 points
-under, inside the expected ~3-point extraction-shape loss (activity 003 finding
-9). The U-shape reproduces: level 9 at 51.6% vs the probe's 50%. `verify` is per
-rollout; `solve@K` is per problem (either candidate correct); `usable` is
-verifier-correct **and** parser-gate-passing — the pool Part 2 selects from.
+Gate failures: 22 in 9,000, all `missing_think_close` (the cap-hits).
 
-*(Level 1 is absent from this table for the reason in finding 2, not because it
-failed. It appears from the shuffled restart onward.)*
+**The packet's expectation was wrong in the good direction, and the reason is
+the token budget.** It predicted the bulk harvest would land ~3 points *under*
+the activity-003 probe's 73%; it landed **4 points above**. Per level against
+that probe: L1 92.8% vs 86%, L5 **77.0% vs ~56%**, L9 50.5% vs 50%.
 
----
+The probe ran at a 16,384-token cap with **9% cap-hits**; this harvest ran at
+32,768 with **0.3%**. A cap-hit is a trace that never reaches an answer, so it
+is scored wrong *and* has no answer segment — recovering those is worth several
+points of yield on its own, and it is concentrated in the mid-levels where
+traces are long enough to truncate but not hard enough to fail. Finding 1's
+claim that the generous budget "converts waste into usable traces" is now
+quantified: **+4 points of verify rate, not just +9 points of gate rate.**
+
+`solve@K` (84.1%) exceeds `verify` (77.1%) by 7 points — that is the K=2 second
+candidate rescuing problems whose first rollout failed, and it is the whole
+justification for K=2 in this packet.
 
 ## Conclusion
 
