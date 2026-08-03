@@ -1004,6 +1004,53 @@ let A = {D ⊂ [0,1] : |D| ≤ |ℕ|}
 
 ---
 
+### 15. Reachability — GLM-style compression is NOT reachable by exemplar demonstration
+
+The deferral from finding 12, now measured. The design's mechanism for
+demonstrating the register to the teacher is the card's exemplars
+(`whetstone-v2-design.md:77`: *"Every teacher rollout is conditioned on the
+register card + exemplars … the teacher receives no register SFT"*), so
+"use GLM to demonstrate to the teacher" concretely means promoting GLM
+compressions into the card's exemplar slots.
+
+Built that card — kept exemplars 1–2 (level-1 problems, where a long rewrite
+would be *wrong*), replaced 3–5 with GLM long-trace compressions at L4/L6/L8
+(one from a 22,936-token original). Valid: 0 boundary tokens, 4,356 prompt
+tokens vs the ratified 3,839 (+517 per teacher rollout). Same 200 traces,
+same everything else.
+
+| | lines med | ratio med | **branch** | verify | mark/100ch |
+|---|---|---|---|---|---|
+| Qwen3 + ratified card | 8 | 0.0202 | 2% | 35% | 1.26 |
+| Qwen3 + **GLM-exemplar card** | 8 | 0.0210 | **1%** | 42% | 1.19 |
+| GLM itself (ceiling) | 11 | 0.0298 | **39%** | 95% | 3.15 |
+
+**Essentially no transfer.** Identical line count, ratio and marker density;
+branch retention unchanged at 1–2% against the 39% ceiling. Only `verify_kept`
+moved (35% → 42%, ≈2 SE — marginal).
+
+**This contradicts a premise the design leans on.** Line 77 justifies in-context
+conditioning on the grounds that GRPO "can only rank sampled lengths — it trims
+within the current mode and cannot jump to a register it never samples", so
+conditioning must put terse, correct output inside the sampling support from
+step 0. For *branch preservation* it does not: three long-trace exemplars did
+not put branch-preserving compressions into Qwen3-1.7B's sampling support, so
+Stage-A GRPO would be asked to discover behaviour its rollouts never exhibit.
+
+**Scope, precisely.** This tests **3 static card exemplars**. It does not rule
+out (a) per-rollout retrieval of more, difficulty-matched demonstrations from
+the 806-trace gated pool — the reading of "teacher conditioning corpus" that
+P3's own header implies; (b) the rules-based variants (`B_scale`, `E_all`),
+built but never run; or (c) RL itself. But three exemplars moving nothing is
+weak evidence that more of the same channel will.
+
+**What is and is not established about the GLM bootstrap.** That the GLM corpus
+is a better conditioning *pool* stands (39.9% vs 3.1% branch retention on
+identical inputs). That showing it to Qwen3 makes Qwen3 compress that way does
+**not**. Those are separable claims and only the first has evidence.
+
+---
+
 ## Conclusion
 
 **P3 is done, with a materially different shape than the packet specified.** The
