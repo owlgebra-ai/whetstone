@@ -539,6 +539,87 @@ open**: a corpus Qwen3-1.7B cannot imitate is a bad teacher-conditioning target
 no matter how good it looks, which is what the `F_glm_exemplars` A/B arm exists
 to measure.
 
+### 11. Δlogp retired; structural gate replaces it
+
+**The whole Δlogp family is the wrong instrument here, not just its threshold.**
+Three independent measurements:
+
+1. 17% of gate-**passing** traces judged unfaithful, all in one shape —
+   conclusion asserted, derivation dropped (finding 9);
+2. the more faithful GLM corpus passes **less** often than the terser Qwen3 one
+   (58.4% vs 70%) — the gate mildly selects *against* faithfulness;
+3. **the obvious fix does not work.** `--mask-conclusion` (strip trailing `⇒`
+   lines, then score) was implemented and tested: GLM 56% vs Qwen3 63% — same
+   ordering. Diagnosis: the gold string survives masking in **54–61%** of
+   traces, because a correct derivation *ends by producing the answer*
+   (`2. left: 180−150=30` both derives and states it).
+
+So any metric of the form `P(gold | q, compact)` is dominated by whether the
+answer is literally in context and cannot separate "derived 30 and wrote 30"
+from "just wrote 30". The flag survives in `perplexity_score.py` for the record,
+but Δlogp is no longer P3's gate.
+
+**Replacement: `scripts/structural_gate.py`** — card §1.4's "never elided"
+column, measured directly against each trace's own verbose source. Deterministic
+string ops: no model, no external judge, no distributional bias, free. Each
+check fires **only when the source warrants it**, which is what makes it a
+faithfulness measure and not a style measure.
+
+Calibration on the two corpora:
+
+| check | GLM (n=989) | Qwen3 (n=200) |
+|---|---|---|
+| `branch_kept` (`case `/`✗` when source branched) | **39.9%** | 3.0% |
+| `verify_kept` (`chk:`/`✓` when source verified) | **95.9%** | 37.5% |
+| `value_coverage` median | **0.667** | 0.500 |
+| `value_coverage` p10 | **0.40** | 0.111 |
+| `invented_frac` p90 | 0.318 | **0.077** |
+
+**A bug in the gate's own first draft, worth recording** because it is the third
+time this confound has bitten: counting line-leading step numbers as content
+made the *better* corpus look like it invented more (0.25 vs 0.083 median). The
+register numbers its steps, so a longer — i.e. more faithful — rewrite
+mechanically introduces more integers. After stripping step markers both medians
+are 0.0 and the ordering is sane.
+
+**Honest mark against the GLM corpus:** even after the fix its p90
+`invented_frac` is 0.318 against Qwen3's 0.077 — it introduces more numerals
+absent from the source in the tail. That may be legitimate (it re-derives
+arithmetic the verbose trace only gestured at) or light confabulation. Flagged
+for audit; not disqualifying.
+
+**Thresholds are not pinned yet.** `branch_kept` at 39.9% even on the best
+corpus means requiring it would reject 60% of it — so it is reported, not gated.
+A workable starting set for the *conditioning* corpus is `verify_kept` required,
+`value_coverage ≥ 0.5`, `invented_frac ≤ 0.5`. The binding calibration comes
+from the paired run (below), not from these two non-paired corpora.
+
+**Caveat on this table:** the two corpora were compressed from *different* input
+sets (GLM from the 1,200-problem file, Qwen3 A_control from a 200-problem file),
+so this is suggestive, not paired. The Qwen3 register corpus is queued on **the
+same 1,200 inputs as the GLM corpus**, which makes every later comparison
+like-for-like.
+
+### 12. Pivot — what the GPU is actually for now
+
+`A_control` (200/200, Qwen3 + ratified card) **is** the start of the Round-0
+corpus, which needs ~1,000. So:
+
+* **card A/B killed** at `F_glm_exemplars` 2/200. Its question — can Qwen3
+  imitate GLM-style compression — is a Stage-A question that Stage-A RL answers
+  directly, and it was consuming GPU that P3 needs. **This is a deferral, not a
+  resolution: reachability is now unmeasured.**
+* **Qwen3 register corpus queued** to start automatically when the harvest
+  client exits, at concurrency 64 on the whole GPU, over the same 1,200 inputs
+  as the GLM corpus.
+
+Corpus roles, settled:
+
+| corpus | compressor | consumed by | gate |
+|---|---|---|---|
+| `seed_register_qwen` | Qwen3-1.7B | Round-0 inoculation, H_pivot, verbose control | structural checks **reported, not filtered** — representativeness is the point |
+| `seed_register_glm` | GLM-5.2 | Stage-A teacher conditioning | filter on `structural_pass` |
+
 ---
 
 ## Runbook for the rest of the packet
