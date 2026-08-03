@@ -1,10 +1,10 @@
 # P3 — Seed harvest + seed register corpus
 
-STATUS: in-progress (activity 005) — **card RATIFIED and FILLED 2026-08-02** (`configs/register_card.md`, bake-off winner arm A, required edits applied, tokenizer-audited, 5 exemplars). Parts 1 and 2 both unblocked; use `--mode oneshot` for Part 2 (activity 004).
+STATUS: done (activity 005) — Part 1 complete (9,000 rollouts, 77.1% verify). Part 2 RESHAPED: Δlogp retired, TWO corpora (Qwen3 → Round 0/H_pivot unfiltered; GLM → Stage-A conditioning, attested deviation). **H_pivot = 0.6707 nats.** Round-0 splits + verbose control written. P4 UNBLOCKED.
 MACHINES: turing (all generation); spark for Δlogp scoring pass — NB spark now has TWO venvs (activity 002): `~/git/whetstone/.venv` (CPU-only, data work) and `~/workspace/whetstone-scorer/.venv` (vLLM). The Δlogp pass needs the vLLM one.
 DEPENDS ON: P0, P1, P2 (parser + probe + card)
 BLOCKS: P4 (needs the seed register corpus), Stage A (teacher conditioning corpus)
-DELIVERABLES: verified seed harvest, seed register corpus (~300–1,000 traces), Δlogp-gated, H_pivot pinned from the compact-register entropy histogram.
+DELIVERABLES: verified seed harvest ✅ (9,000 rollouts, 0 failures); register corpora ✅ (Qwen3 1,200 + GLM 989→806 gated) — **structural-gated, not Δlogp-gated** (retired, findings 9/11); H_pivot ✅ **0.6707 nats**.
 
 ## Objective
 

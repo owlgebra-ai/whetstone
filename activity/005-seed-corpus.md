@@ -1,7 +1,7 @@
 # 005 — P3: seed harvest + seed register corpus
 
 - **Packet:** [packets/P3-seed-corpus.md](packets/P3-seed-corpus.md)
-- **Status:** in-progress
+- **Status:** done
 - **Machine(s):** mac (code), turing (harvest + compression), spark (Δlogp, pre-flight)
 - **Code commit(s):** `ed5cd8e` → `<this commit>`
 - **Started / finished:** 2026-08-02 → —
@@ -1006,4 +1006,80 @@ let A = {D ⊂ [0,1] : |D| ≤ |ℕ|}
 
 ## Conclusion
 
-⟨pending — written when the harvest, register corpus and H_pivot are done.⟩
+**P3 is done, with a materially different shape than the packet specified.** The
+harvest ran as written; Part 2 did not, and the reasons are measured rather than
+argued.
+
+### Pinned for downstream packets
+
+| quantity | value | source |
+|---|---|---|
+| **H_pivot** | **0.6707 nats** | p80 of think entropy, 1,200 Qwen3 register traces, 243,190 tokens |
+| harvest verify rate | 77.1% (solve@K 84.1%) | 9,000/9,000 rollouts, 0 failures |
+| parser gate | 99.8% | 22 failures, all cap-hits |
+| cap-hit rate | 0.3% | at `max_tokens=32768` |
+| Round-0 splits | train 960 / heldout_register 120 / probe_pool 120 | fixed seed, level-stratified |
+| verbose control | 200 | disjoint from the register corpus (2,584 candidates) |
+
+**H_pivot overturns activity 004's flag.** 004 measured 0.2276 on a contaminated
+corpus and warned the compact register would be ~3× more deterministic than
+native CoT, interacting badly with `Δ_max = 0.7` and TEA's `τ_c = 1.0`. The real
+value, 0.6707, sits within 3% of the native-trace 0.6923. Those concerns
+dissolve. (My own 50-trace intermediate estimate, 0.5067, was still 32% low —
+these percentiles need scale.)
+
+### What changed from the packet
+
+1. **Δlogp is retired**, not re-thresholded. Any `P(gold | q, compact)` metric
+   is dominated by whether the answer is literally in context, so it cannot
+   separate deriving from asserting. Three measurements, including a fix
+   (`--mask-conclusion`) that was implemented, tested, and failed.
+2. **Two corpora, not one**, with different compressors, consumers and gates —
+   `seed_register_qwen` (1,200; Round 0, H_pivot; **unfiltered**, because those
+   consumers need the student's own distribution) and `seed_register_glm`
+   (989 → 806 gated; Stage-A conditioning; an attested central-model deviation).
+3. **`structural_gate.py` replaces Δlogp** — card §1.4's "never elided" column
+   measured against each trace's own source, deterministic and model-free.
+
+### The number that should worry the next packet
+
+Qwen3's own compressions are **40% faithful / 40% lossy / 21% wrong** (n=200,
+external judge), dropping a branch on 46% of traces, and the paired comparison
+is stark: branch retention **39.9% (GLM) vs 3.1% (Qwen3)** on identical inputs,
+diverging only above level 3 and reaching 51% vs 0% at level 9.
+
+This is not a P3 blocker — Round 0 consumes register-*token* statistics and
+wants a representative corpus, which this is. It is a **Stage-A** problem: the
+v2 teacher *is* Qwen3, so Stage A begins from a compressor that destroys branch
+structure, and `G_spike` has to fix that through RL.
+
+### Open, and deliberately so
+
+* **Reachability is unmeasured.** The card A/B was killed at 2/200 to free GPU
+  for the Qwen3 corpus. We now know the size of the gap Stage A must close; we
+  do not know whether a card change closes it cheaply. This is a deferral.
+* **Structural-gate thresholds are provisional.** `branch_kept` is a corpus
+  diagnostic, not a per-record gate, because its source detector fires on 99.5%
+  of traces. Tightening that detector is prerequisite to gating on it.
+* **Think-segment grading needs a register-aware normaliser** (Unicode math ↔
+  LaTeX) before any conclusion-vs-gold check is trustworthy.
+* **The GLM corpus is an attested deviation.** Every record carries
+  `central_model_deviation: true`. Recommendation, on measured grounds
+  (H_pivot 0.9119 on GLM text vs 0.6707 on Qwen3's): teacher conditioning only.
+
+### For P4
+
+`H_pivot = 0.6707`. Splits are written and must not be re-split. Use
+`seed_register_qwen/{train,heldout_register,probe_pool,verbose_control}.jsonl`.
+Do **not** inoculate the scorer on the GLM corpus. Note also that P4's τ_spike
+correction (packet header) still stands: the 4-nat design placeholder is dead on
+arrival for this checkpoint.
+
+### Method note
+
+Five separate measurement artifacts in this packet produced confident, inverted
+results before being caught: step numbers counted as content (twice),
+comma-fusion of step back-references, notation counted as invention, and
+Unicode-vs-LaTeX in conclusion matching. Each initially read as a substantive
+finding about corpus quality. Anything derived from naive string comparison on
+this data should be treated as guilty until audited.
