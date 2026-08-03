@@ -642,32 +642,43 @@ Corpus roles, settled:
 
 ---
 
-## Runbook for the rest of the packet
+## Runbook for the rest of the packet (revised — findings 9–12)
 
-Executed in this order once the harvest lands. Steps 6–9 move to **spark**:
-they are teacher-forcing scoring passes (exactly what the GB10 is for) and
-they cannot share turing's GPU with the resident vLLM server at
-`--gpu-memory-utilization 0.90`.
+The original runbook is superseded: it built **one** corpus gated on Δlogp.
+There are now **two** corpora with different compressors, different consumers and
+different gates, and Δlogp gates neither.
 
-| # | box | command |
+**Already done** (out of order, because the GLM path needs no GPU):
+
+| # | box | what | state |
+|---|---|---|---|
+| a | turing | `verify_harvest.py` → 2,752/3,639 kept (75.6%) | ✅ |
+| b | turing | `select_compression_inputs.py --n 1200` (the paired input set) | ✅ |
+| c | spark | `glm_compress.py` → `seed_register_glm/compact_glm.jsonl`, 989 traces | ✅ |
+| d | turing | `compress_local_versionB.py` arm `A_control` → 200 Qwen3 traces (pilot) | ✅ |
+
+**Remaining:**
+
+| # | box | what |
 |---|---|---|
-| 1 | turing | `verify_harvest.py --input seed_harvest.jsonl --output seed_verified.jsonl` |
-| 2 | turing | `harvest_report.py` → full per-level yield table |
-| 3 | turing | `select_compression_inputs.py --n 1500` |
-| 4 | turing | `compress_local_versionB.py --mode oneshot --server … --temperature 0.4` |
-| 5 | turing | stop the vLLM server (frees the GPU) |
-| 6 | spark | `perplexity_score.py` (no `--keep-only`: annotate all rows, so the histogram has the failures too) |
-| 7 | spark | `finalize_seed_register.py` → `seed_register.jsonl` |
-| 8 | spark | `entropy_audit.py --traces … --completion_field completion` → **H_pivot = p80** |
-| 9 | spark | `build_round0_sets.py` → 3 splits + verbose control + Δlogp plot |
-| 10 | any | `show_bakeoff_examples.py --mode faithful --n 5` → the packet's hand-inspection deliverable |
+| 1 | turing | Qwen3 register corpus over **the same 1,200 inputs** — queued, fires when the harvest client exits |
+| 2 | turing | `harvest_report.py` → full per-level yield table (packet deliverable) |
+| 3 | turing | stop the vLLM server, freeing the GPU |
+| 4 | spark | `structural_gate.py` on **both** corpora — paired, so thresholds can finally be pinned |
+| 5 | spark | filter the **GLM** corpus on `structural_pass` → Stage-A conditioning set |
+| 6 | spark | `entropy_audit.py --traces <qwen corpus>` → **H_pivot = p80**, from the Qwen3 side only |
+| 7 | spark | `build_round0_sets.py` on the **Qwen3** corpus → train / heldout_register / probe_pool + verbose control |
+| 8 | any | `show_bakeoff_examples.py --mode faithful --n 5` → hand-inspection deliverable |
+| 9 | spark | `faithfulness_audit.py` on a sample of each corpus — **audit, not gate** |
 
-`--n 1500` rather than 1,200: the dry run compresses 1.7× harder than the
-bake-off, and harder compression plausibly lowers the Δlogp pass rate below the
-66% the 1,200 figure assumed. The compression pass is ~30 min of GPU, so the
-headroom is nearly free.
+Two rules carried from the findings, easy to violate by habit:
 
----
+* **Do not filter the Qwen3 corpus.** Round 0 and H_pivot measure the student's
+  own distribution; filtering biases the very thing they measure. Annotate and
+  report only.
+* **Do not pin H_pivot or inoculate from the GLM corpus.** Measured: H_pivot is
+  **0.9119** on GLM text vs **0.5067** on Qwen3's own — 1.8×, and *above* even
+  the native-verbose 0.6923.
 
 ## Partial results (harvest at 2,043 / 9,000 rollouts)
 
