@@ -85,6 +85,19 @@ EXEMPLAR_TMPL = """
 """
 
 
+def _drop_exemplars_from(text: str, first: int) -> str:
+    """Remove `### Exemplar N` sections with N >= ``first`` (in-place, §3 only)."""
+    if first <= 0:
+        return text
+    parts = re.split(r"(?m)^(### Exemplar (\d+).*)$", text)
+    out = [parts[0]]
+    for head, num, body in zip(parts[1::3], parts[2::3], parts[3::3]):
+        if int(num) >= first:
+            continue
+        out.append(head + body)
+    return "".join(out)
+
+
 def _append_exemplars(text: str, exemplars: list[dict]) -> str:
     """Append long-trace exemplars to the end of §3, before §4."""
     n_existing = len(re.findall(r"(?m)^### Exemplar \d+", text))
@@ -108,6 +121,13 @@ def main() -> int:
     ap.add_argument("--glm_exemplars", default=None,
                     help="glm_exemplars.jsonl — adds an F_glm_exemplars arm "
                          "testing whether long-trace exemplars beat a rule")
+    ap.add_argument("--replace_exemplars_from", type=int, default=0,
+                    help="Drop existing `### Exemplar N` sections with N >= this "
+                         "before appending. The card's short exemplars are what "
+                         "set the length anchor a model imitates, so diluting "
+                         "them with long ones is weaker than replacing them; "
+                         "1–2 are kept because they are correct for the easy "
+                         "regime, where long rewrites would be wrong.")
     ap.add_argument("--glm_max_chars", type=int, default=2500,
                     help="skip candidate exemplars larger than this; the card "
                          "rides in the Stage-A teacher context, so size is a "
@@ -143,7 +163,8 @@ def main() -> int:
     meta = {}
     for name, block in variants.items():
         if block is None:
-            text = _append_exemplars(base, glm)
+            text = _append_exemplars(
+                _drop_exemplars_from(base, args.replace_exemplars_from), glm)
         else:
             text = base if not block else ANCHOR.sub(r"\1" + block, base, count=1)
         path = os.path.join(args.out_dir, f"{name}.md")
