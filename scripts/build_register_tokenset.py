@@ -229,7 +229,10 @@ def main() -> int:
     dropped = whitelist_dropped(tok, wl_strings)
     print(f"[whitelist] card §2: {len(wl_strings)} strings → {len(wl)} token ids")
     if not args.whitelist_all_pieces and dropped:
-        n_drop_tok = sum(len(per_type.get(t, [])) for v in dropped.values() for t in v)
+        # Union the piece ids first: '.' and ' ' recur across every step marker,
+        # and summing per-variant double-counts them (it read 143% of the corpus).
+        drop_ids = {t for v in dropped.values() for t in v}
+        n_drop_tok = sum(len(per_type.get(t, [])) for t in drop_ids)
         print(f"[whitelist] dropped {len(dropped)} multi-piece variants "
               f"(their pieces cover {n_drop_tok:,} think tokens = "
               f"{100 * n_drop_tok / max(think_tok, 1):.1f}% of the corpus):")
