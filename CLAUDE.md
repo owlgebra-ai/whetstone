@@ -10,7 +10,9 @@ WHETSTONE installs a compact reasoning register into a language model via self-t
 
 ## v2 pipeline in one screen
 
-Starting checkpoint: an existing **thinking model** (native `<think>` traces). Two copies of it play roles: a **teacher** π_T conditioned on privileged context (gold answer, verbose trace, register card) and a **student/scorer** π_S with no privileged context. The final deliverable is the student, prompt-free.
+Starting checkpoint: an existing **thinking model** (native `<think>` traces). A **teacher** π_T conditioned on privileged context (gold answer, verbose trace, register card) and a **student/scorer** π_S with no privileged context. The final deliverable is the student, prompt-free.
+
+> **Amendment (activity 006, 2026-08-03): teacher and student are DECOUPLED.** The design's "two copies of the same checkpoint" failed empirically at the 1.7B tier: branch preservation is scale-emergent (3.1%/5.9%/13.9% at 1.7B/14B/32B) and no prompting channel transfers it. The teacher is now **frozen Qwen3-32B-NVFP4**; Stage A is **generate-and-select (best-of-K under the unchanged product reward)**, not teacher GRPO — a 32B cannot be trained on one 32 GB card. Student, scorer, Round 0, H_pivot, Stages B/C, and the deliverable are unchanged. Gated on the G_spike × branch-retention check (006), whose binding run happens **post-F1 under the inoculated scorer**.
 
 1. **Preconditions** — entropy audit of the checkpoint (sets H_pivot, decides SED preservation vs restoration mode); human-written **register card** (the register is *specified, not discovered*); small seed harvest (K=2, 10–20% of pool); one prompted-compression pass → seed register corpus.
 2. **Round 0 — scorer inoculation.** Calibrate the scorer so register tokens read as "hum" not spikes, without dulling its spike response to genuine reasoning leaps. Threshold-stopped (S1 calibration / S2 KL drift budget / S3 entropy floor). Three meter unit tests are mandatory; the **corrupted-trace probe failing invalidates the scorer regardless of the other two**. This retires the project's largest risk: a silently inverted reward meter.

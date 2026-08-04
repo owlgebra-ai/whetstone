@@ -117,10 +117,25 @@ Serving note: 32B-NVFP4 runs on one 5090 — `quantization=modelopt_fp4`,
 ## Open
 
 1. Run the `G_spike` × branch-retention correlation check (above). **Gates P5.**
+   **Sequencing correction (Claude, 2026-08-03): the binding version of this
+   check must run under the INOCULATED scorer (post-F1), not π_0.** Branch-
+   preserving traces carry more register markers (`case`, `✗`), markers carry
+   the style tax, and the tax inflates d_t — so a pre-Round-0 run would likely
+   measure an anti-correlation that is really the accent Round 0 exists to
+   remove. Run it now only as a cheap directional read; do not act on a
+   negative result before F1.
 2. Decide K for best-of-N and whether `G_budget` selection uses the design's
    `B_target ≈ 600` (32B's median compact is 9 lines, well under it).
+   **Selection-amplification note (Claude): 13.9% is the per-sample branch
+   rate, not the corpus ceiling — P(≥1 branch-keeping candidate) ≈ 70% at K=8,
+   ~91% at K=16.** And because the teacher is frozen, selection faces one-shot
+   Goodhart pressure only: `branch_kept` is safe to use as a selection term
+   even though it is too crude to train against. That is the designated fix if
+   check (1) fails.
 3. Expand P5 from "teacher GRPO" to "teacher best-of-N selection" once (1) is
-   settled.
+   settled. Compute reality for that packet: K=8 × 30k pool at ~22 traces/min
+   ≈ a week of solo 5090 time — choose K and pool coverage deliberately, and
+   schedule after P4 (Round 0 needs the GPU first, for hours not days).
 4. The GLM corpus retains its `central_model_deviation` stamp and its
    conditioning-only recommendation; with a 32B teacher in the design, its role
    narrows further — it is now the *ceiling reference*, not a planned input.
