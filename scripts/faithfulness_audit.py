@@ -146,6 +146,20 @@ def main() -> int:
                                  max_retries=4)
 
     rows = read_jsonl(args.corpus)
+    # A record with no verbose source has nothing for the rubric to compare
+    # against: the judge sees an empty ORIGINAL and grades the rewrite against
+    # nothing. Measured on the Stage-A corpus (activity 008), those judgments
+    # came back 94.7% "faithful" against 78.0% for source-bearing records — so
+    # they do not merely add noise, they inflate the headline. Stage-A corpora
+    # legitimately contain such records (the ~34% of problems with no verified
+    # trace), so this is filtered here rather than assumed away.
+    n_all = len(rows)
+    rows = [r for r in rows if (r.get("verbose_think") or "").strip()]
+    if len(rows) != n_all:
+        print(f"[in] {n_all - len(rows)}/{n_all} records dropped: no verbose "
+              f"source to judge against", flush=True)
+    if not rows:
+        raise SystemExit("[audit] no source-bearing records in the corpus")
     dropped = repair_tail(args.output)
     if dropped:
         print(f"[resume] repaired torn tail: dropped {dropped} B", flush=True)
