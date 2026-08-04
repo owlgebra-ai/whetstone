@@ -213,7 +213,7 @@ def main() -> int:
         try:
             align = assert_alignment(model, sets)
         except AssertionError as e:
-            align = float("nan")
+            align = getattr(e, "measured", float("nan"))
             print(f"[align] NOTE: {e}")
         m = evaluate(model, sets, r_ids=r_ids, class_ids=class_ids, cache=cache)
         m.pop("_gaps_heldout")

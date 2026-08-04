@@ -241,11 +241,17 @@ def assert_alignment(model, sets: EvalSets, *, n: int = 40, device: str = "cuda"
             vals.append(float(s["entropy"][0]))
     med = float(np.median(vals)) if vals else math.nan
     if not (med < max_median):
-        raise AssertionError(
+        # Carry the measured value on the exception: on a trained checkpoint
+        # this is not a misalignment but a real, and interesting, degradation of
+        # the model's boundary calibration, and the caller needs the number.
+        err = AssertionError(
             f"</think> entropy median on native traces = {med:.5f} nats, expected "
-            f"< {max_median} (activity 003 audit: 6.6e-05). The logits/token "
-            "alignment is off by one — every metric in this run would be shifted."
+            f"< {max_median} (activity 003 audit: 6.6e-05). On pi_0 this means the "
+            "logits/token alignment is off by one; on a trained checkpoint it means "
+            "inoculation has moved the boundary calibration."
         )
+        err.measured = med
+        raise err
     return med
 
 
