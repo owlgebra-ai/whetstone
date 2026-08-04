@@ -34,6 +34,7 @@ Usage::
     # on spark, alongside the resident scorer
     python scripts/score_drafts.py --follow \\
         --drafts /data/whetstone/corpora/stagea_raw/drafts.jsonl \\
+        --subset /data/whetstone/corpora/stagea/subset_stagea.jsonl \\
         --output /data/whetstone/corpora/stagea_raw/scores.jsonl
 """
 
@@ -101,8 +102,15 @@ def read_new(path: str, seen: set) -> list[dict]:
     return out
 
 
-def annotate(draft: dict) -> dict:
-    """Structural annotation, honest about whether a source exists."""
+def annotate(draft: dict, verbose: str = "") -> dict:
+    """Structural annotation, honest about whether a source exists.
+
+    ``verbose`` comes from the subset file, not from the draft: the raw corpus
+    deliberately does not carry a copy of the verbose trace per draft (it would
+    be 8 copies of a ~4.5k-token trace per problem). Passing it in is therefore
+    load-bearing — with an empty string every draft reads ``no_source`` and the
+    whole structural half of selection silently turns off.
+    """
     compact = draft.get("compact_think", "")
     has_branch = bool(COMPACT_BRANCH.search(compact))
     has_verify = bool(COMPACT_VERIFY.search(compact))
@@ -111,7 +119,6 @@ def annotate(draft: dict) -> dict:
         "compact_has_verify": has_verify,
         "compact_lines": len([l for l in compact.splitlines() if l.strip()]),
     }
-    verbose = draft.get("verbose_think") or ""
     if not verbose:
         # No source ⇒ no claim about what was *kept*. Leaving verify_kept=True
         # here (the vacuous value features() returns) would let a draft that
@@ -123,6 +130,11 @@ def annotate(draft: dict) -> dict:
     f = features({"verbose_think": verbose, "compact_think": compact})
     out.update({
         "no_source": False,
+        # Whether the TEACHER saw this trace. A trace over the 12,288-token
+        # conditioning cap still exists and still defines what "kept" means,
+        # but the teacher wrote without it — keep the distinction so a later
+        # analysis can condition on it instead of rediscovering it.
+        "source_seen_by_teacher": draft.get("conditioned_on") == "gold+trace",
         "src_has_branch": f["src_has_branch"],
         "src_has_verify": f["src_has_verify"],
         "branch_kept": f["branch_kept"],
@@ -179,6 +191,10 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--drafts", default="/data/whetstone/corpora/stagea_raw/drafts.jsonl")
+    ap.add_argument("--subset", default="/data/whetstone/corpora/stagea/subset_stagea.jsonl",
+                    help="source of the verbose traces the structural gate "
+                         "scores against — REQUIRED for verify_kept/branch_kept "
+                         "to mean anything")
     ap.add_argument("--output", default="/data/whetstone/corpora/stagea_raw/scores.jsonl")
     ap.add_argument("--server", default="http://127.0.0.1:8100/v1")
     ap.add_argument("--model", default="whetstone-scorer")
@@ -203,6 +219,20 @@ def main() -> int:
 
     from transformers import AutoTokenizer
     tokenizer = AutoTokenizer.from_pretrained(args.tokenizer)
+
+    verbose_by_uid: dict[str, str] = {}
+    with open(args.subset) as fh:
+        for line in fh:
+            if line.strip():
+                r = json.loads(line)
+                if r.get("verbose_think"):
+                    verbose_by_uid[r["_uid"]] = r["verbose_think"]
+    print(f"[subset] {len(verbose_by_uid)} problems carry a verbose source")
+    if not verbose_by_uid:
+        raise SystemExit(
+            f"[score] no verbose traces in {args.subset}. Every draft would be "
+            "annotated no_source and the structural half of selection would "
+            "silently do nothing — refusing to run.")
 
     os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
     dropped = repair_tail(args.output)
@@ -259,7 +289,8 @@ def main() -> int:
                 state[f"skip:{reason.split(':')[0]}"] += 1
                 out_f.write(json.dumps({
                     "_uid": key[0], "candidate_idx": key[1],
-                    "score_skip_reason": reason, **annotate(d)}) + "\n")
+                    "score_skip_reason": reason,
+                    **annotate(d, verbose_by_uid.get(key[0], ""))}) + "\n")
                 seen.add(key)
 
             if not seqs:
@@ -300,7 +331,7 @@ def main() -> int:
                     "scorer_model": args.model,
                     "tau_spike": TAU_SPIKE, "tau_leap": TAU_LEAP,
                     "b_target": args.b_target,
-                    **annotate(d),
+                    **annotate(d, verbose_by_uid.get(key[0], "")),
                 }
                 out_f.write(json.dumps(rec, ensure_ascii=False) + "\n")
                 seen.add(key)
