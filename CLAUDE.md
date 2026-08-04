@@ -51,7 +51,22 @@ Run order (gated): Round-0 band-existence check (Risk 1) → ablations A1/A4 →
 | `trashed/*.md` | v1 procedure + Stage-5 reward design | Reference only — resolve "v1 §N" citations here |
 | `deps.md` | Element-GPU dependency install (CaveThought-era) | Historical; local boxes below are the current hardware |
 
-New v2 components with no v1 counterpart (to be built): Round-0 inoculation loss + meter unit tests, the offline analysis scripts (entropy audit, type aggregation for R — design §12.3), the teacher GRPO loop with G_spike/G_budget, the scorer "reward server" (frozen vLLM instance scoring via one teacher-forced prefill pass, `prompt_logprobs ≥ 2`), the SED kernel, and Stage-C segment routing + TEA + rescue.
+**Built by P4 / activity 007** (Round 0 complete, F1 passed):
+
+| Path | Role |
+|---|---|
+| `whetstone/round0.py` | Shared sequence construction (packet P4 §4), card §2 whitelist, the d_t contract, `g_spike`. **Every stage that scores a (q, τ) pair must go through this** — a record scored under one construction and thresholded under another is the silently-inverted meter |
+| `whetstone/sed.py` | SED kernel (CurioSFT), **shared verbatim with Stage B** — new EMA copy per stage, never carried over. `row_logits` bounds trainer memory by the supervised rows |
+| `whetstone/round0_eval.py` | S1/S2/S3 + hum metrics, π_0 reference cache, `assert_alignment` |
+| `scripts/build_register_tokenset.py` | R token set (design §12.3) |
+| `scripts/precompute_pi0_cache.py` | Frozen-π_0 reference values — π_0 does not fit on the GPU beside the trainer |
+| `scripts/inoculate_scorer.py` | Round-0 trainer + the four §7 curves |
+| `scripts/build_corrupted_probe.py`, `scripts/meter_tests.py` | Meter test (c) twins; the three tests + F1 verdict |
+| `scripts/gspike_branch_check.py` | G_spike × structural-property correlations under a given scorer |
+
+Still to build: the Stage-A best-of-K selection loop with G_spike/G_budget (P5 — **not** GRPO, see activity 006), Stage-B ZPD band-pass, and Stage-C segment routing + TEA + rescue.
+
+**`scorer_v1` is frozen** at `/data/whetstone/ckpt/scorer_v1` and serves on `spark:8100` as `whetstone-scorer` (activity 007). The student of Stage B starts from the *original* checkpoint, never from `scorer_v1`.
 
 ## Invariants — do not violate
 
@@ -62,13 +77,14 @@ New v2 components with no v1 counterpart (to be built): Round-0 inoculation loss
 - **EMA gotchas (design §12.4):** EMA *update* (μ=0.99), never a hard copy; count **optimizer** steps, not micro-batches; gate and temperature search run on the *teacher's* logits; Round 0 and Stage B each keep their own EMA copy — never shared or carried over.
 - **Scorer gates recompute after every assimilation round** — stale gates are a known drift failure.
 - **Don't trust the scorer until all three Round-0 unit tests pass simultaneously**; re-inoculate between teacher rounds rather than lowering λ.
-- **Gate compute:** nothing runs on 4B/8B until F1–F4 pass on 1.7B.
+- **Gate compute:** nothing runs on 4B/8B until F1–F4 pass on 1.7B. (F1 passed on its design question — activity 007.)
+- **Full-FT on the 32 GB card needs fp32 master weights + 8-bit Adam moments** (activity 007): at LR 1e-5 a bf16 weight update is 12× below the format's quantum and rounds to zero *silently*. Log `theta_drift` every eval so a no-op run can never look like a training run.
 - Record schema is `_uid / prompt / ground_truth / level`; keep resume invariants from v1 §2.5.
 
 ## Environment
 
 - This Mac is for design and code work. Training/inference runs on two local GPU boxes (full survey: [activity/000-turing-reset.md](activity/000-turing-reset.md)):
-  - **turing** — `ssh bajajra@192.168.1.220`, x86_64, RTX 5090 32 GB. **All training and all rollout generation.** Wiped clean 2026-08-01 (~866 GB free on root); the stale v1 checkout is gone — fresh clone per packet P0.
+  - **turing** — `ssh bajajra@192.168.1.220`, x86_64, RTX 5090 32 GB. **All training and all rollout generation.** Checkout lives at **`~/workspace/whetstone`** (not `~/git/whetstone`); `uv` is at `~/.local/bin/uv`. Do not put scratch scripts in `/tmp` — a stale `/tmp/inspect.py` shadows the stdlib `inspect` module and breaks `import torch`.
   - **spark** — `ssh bajajra@192.168.1.253`, DGX Spark, **aarch64 (ARM — different wheels!)**, GB10 unified memory. **Frozen scorer / reward server + CPU-heavy data prep + offline scoring passes.** Never schedule decode-heavy rollout generation here (low memory bandwidth).
   - **`/data` is the shared artifact store:** ZFS on turing (~4 TB free), NFS-mounted on spark. All corpora/checkpoints/logs go under `/data/whetstone/`; nothing large on either root disk. HF cache on turing is `~/.cache/huggingface → /data/cache/huggingface/` and already holds **Qwen3-1.7B/-Base, Qwen3-8B, Qwen3-4B-Thinking-2507-FP8**.
 - System pythons are unusable (turing 3.14, too new). Use uv-managed **3.12** venvs (established by P0/activity 001: vllm 0.26.0, torch 2.11.0+cu130, CPython 3.12.12, plain PyPI wheels on both arches); trust the pyproject at HEAD. Operational rules from activity 001: `source .venv/bin/activate` before anything that starts vLLM (ninja PATH); the scorer server is **`spark:8100`** (8000 belongs to an unrelated llama-swap service) and every vLLM run on spark needs `VLLM_USE_FLASHINFER_SAMPLER=0`.

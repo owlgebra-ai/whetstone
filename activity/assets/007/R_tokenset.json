@@ -1,0 +1,355 @@
+{
+ "_meta": {
+  "train": "/data/whetstone/corpora/seed_register_qwen/train.jsonl",
+  "n_records": 960,
+  "think_tokens": 195898,
+  "backend": "vllm-server:http://127.0.0.1:8000/v1",
+  "model": "Qwen/Qwen3-1.7B",
+  "card": "configs/register_card.md",
+  "min_count": 10,
+  "mean_pct": 75.0,
+  "mean_threshold": 1.7803171239181375,
+  "std_threshold": 1.7562985651772522,
+  "n_eligible_types": 946,
+  "n_stats": 13,
+  "n_whitelist": 37,
+  "n_overlap": 2,
+  "n_total": 48
+ },
+ "0": {
+  "surface": "!",
+  "mean": 0.078345,
+  "std": 0.413277,
+  "count": 189,
+  "source": "whitelist"
+ },
+ "26": {
+  "surface": ";",
+  "mean": 4.063591,
+  "std": 3.416634,
+  "count": 161,
+  "source": "whitelist"
+ },
+ "30": {
+  "surface": "?",
+  "mean": 2.273793,
+  "std": 1.939347,
+  "count": 7,
+  "source": "whitelist"
+ },
+ "753": {
+  "surface": " !",
+  "mean": null,
+  "std": null,
+  "count": 0,
+  "source": "whitelist"
+ },
+ "937": {
+  "surface": " ?",
+  "mean": 5.425314,
+  "std": 5.199572,
+  "count": 5,
+  "source": "whitelist"
+ },
+ "1077": {
+  "surface": " let",
+  "mean": 2.888711,
+  "std": 1.088955,
+  "count": 20,
+  "source": "stats"
+ },
+ "1142": {
+  "surface": " case",
+  "mean": 3.085051,
+  "std": 4.747219,
+  "count": 21,
+  "source": "whitelist"
+ },
+ "1149": {
+  "surface": "let",
+  "mean": 10.167072,
+  "std": 3.983726,
+  "count": 809,
+  "source": "whitelist"
+ },
+ "1186": {
+  "surface": " sub",
+  "mean": 1.934421,
+  "std": 3.242547,
+  "count": 23,
+  "source": "whitelist"
+ },
+ "1966": {
+  "surface": "sub",
+  "mean": 4.047308,
+  "std": 4.812968,
+  "count": 8,
+  "source": "whitelist"
+ },
+ "2587": {
+  "surface": " ;",
+  "mean": null,
+  "std": null,
+  "count": 0,
+  "source": "whitelist"
+ },
+ "3518": {
+  "surface": "})\n",
+  "mean": 2.490525,
+  "std": 1.595166,
+  "count": 12,
+  "source": "stats"
+ },
+ "4292": {
+  "surface": ").\n",
+  "mean": 1.913861,
+  "std": 1.146067,
+  "count": 10,
+  "source": "stats"
+ },
+ "4354": {
+  "surface": " However",
+  "mean": 2.0528,
+  "std": 1.208228,
+  "count": 11,
+  "source": "stats"
+ },
+ "5638": {
+  "surface": "case",
+  "mean": 6.677247,
+  "std": 0.0,
+  "count": 1,
+  "source": "whitelist"
+ },
+ "5795": {
+  "surface": " goal",
+  "mean": 3.068229,
+  "std": 1.695379,
+  "count": 2,
+  "source": "whitelist"
+ },
+ "7414": {
+  "surface": " Yes",
+  "mean": 4.365129,
+  "std": 1.456361,
+  "count": 80,
+  "source": "stats"
+ },
+ "8704": {
+  "surface": " Since",
+  "mean": 2.468296,
+  "std": 1.6932,
+  "count": 63,
+  "source": "stats"
+ },
+ "9592": {
+  "surface": " ·",
+  "mean": 0.566081,
+  "std": 1.987789,
+  "count": 68,
+  "source": "whitelist"
+ },
+ "11397": {
+  "surface": " →",
+  "mean": 1.858544,
+  "std": 2.649795,
+  "count": 338,
+  "source": "whitelist"
+ },
+ "13935": {
+  "surface": "·",
+  "mean": 0.216241,
+  "std": 0.187274,
+  "count": 2,
+  "source": "whitelist"
+ },
+ "14301": {
+  "surface": " Thus",
+  "mean": 3.025305,
+  "std": 0.686619,
+  "count": 14,
+  "source": "stats"
+ },
+ "16085": {
+  "surface": " hence",
+  "mean": 2.415316,
+  "std": 1.119775,
+  "count": 21,
+  "source": "stats"
+ },
+ "20287": {
+  "surface": " ±",
+  "mean": 1.038715,
+  "std": 1.961105,
+  "count": 22,
+  "source": "whitelist"
+ },
+ "27236": {
+  "surface": " tends",
+  "mean": 2.089292,
+  "std": 1.423837,
+  "count": 13,
+  "source": "stats"
+ },
+ "31040": {
+  "surface": " Hence",
+  "mean": 2.412468,
+  "std": 1.064913,
+  "count": 26,
+  "source": "stats"
+ },
+ "33939": {
+  "surface": "goal",
+  "mean": 39.978716,
+  "std": 1.723104,
+  "count": 925,
+  "source": "stats"
+ },
+ "35896": {
+  "surface": "chk",
+  "mean": 20.167903,
+  "std": 3.754908,
+  "count": 296,
+  "source": "whitelist"
+ },
+ "36054": {
+  "surface": " satisfying",
+  "mean": 1.780646,
+  "std": 1.669516,
+  "count": 10,
+  "source": "stats"
+ },
+ "37021": {
+  "surface": "±",
+  "mean": 2.055703,
+  "std": 2.763812,
+  "count": 3,
+  "source": "whitelist"
+ },
+ "37294": {
+  "surface": " ≤",
+  "mean": 1.069858,
+  "std": 2.508398,
+  "count": 190,
+  "source": "whitelist"
+ },
+ "39242": {
+  "surface": " chk",
+  "mean": 16.424044,
+  "std": 3.369915,
+  "count": 12,
+  "source": "whitelist"
+ },
+ "46018": {
+  "surface": " �",
+  "mean": 1.912535,
+  "std": 1.746998,
+  "count": 16,
+  "source": "stats"
+ },
+ "48335": {
+  "surface": " ∈",
+  "mean": 1.820575,
+  "std": 2.468631,
+  "count": 169,
+  "source": "whitelist"
+ },
+ "51018": {
+  "surface": "→",
+  "mean": 1.458494,
+  "std": 2.382142,
+  "count": 232,
+  "source": "whitelist"
+ },
+ "52375": {
+  "surface": " ✓",
+  "mean": 9.300468,
+  "std": 4.791704,
+  "count": 357,
+  "source": "whitelist"
+ },
+ "58703": {
+  "surface": " ⇒",
+  "mean": 1.951127,
+  "std": 2.923818,
+  "count": 647,
+  "source": "whitelist"
+ },
+ "62147": {
+  "surface": " ≥",
+  "mean": 1.625052,
+  "std": 2.372357,
+  "count": 163,
+  "source": "whitelist"
+ },
+ "81163": {
+  "surface": " Δ",
+  "mean": 2.225522,
+  "std": 4.949377,
+  "count": 23,
+  "source": "whitelist"
+ },
+ "94304": {
+  "surface": " ≠",
+  "mean": 2.369291,
+  "std": 3.18164,
+  "count": 53,
+  "source": "whitelist"
+ },
+ "143617": {
+  "surface": "✓",
+  "mean": null,
+  "std": null,
+  "count": 0,
+  "source": "whitelist"
+ },
+ "144016": {
+  "surface": "⇒",
+  "mean": 15.321375,
+  "std": 3.737889,
+  "count": 913,
+  "source": "whitelist"
+ },
+ "144481": {
+  "surface": "≥",
+  "mean": 2.511708,
+  "std": 2.504654,
+  "count": 2,
+  "source": "whitelist"
+ },
+ "144570": {
+  "surface": "≤",
+  "mean": 1.615802,
+  "std": 2.63477,
+  "count": 29,
+  "source": "whitelist"
+ },
+ "144665": {
+  "surface": "Δ",
+  "mean": 0.044453,
+  "std": 0.107499,
+  "count": 26,
+  "source": "whitelist"
+ },
+ "145129": {
+  "surface": "≠",
+  "mean": 8.74741,
+  "std": 1.127833,
+  "count": 2,
+  "source": "whitelist"
+ },
+ "145690": {
+  "surface": "∈",
+  "mean": 2.493557,
+  "std": 3.509932,
+  "count": 13,
+  "source": "whitelist"
+ },
+ "145986": {
+  "surface": "✗",
+  "mean": null,
+  "std": null,
+  "count": 0,
+  "source": "whitelist"
+ }
+}

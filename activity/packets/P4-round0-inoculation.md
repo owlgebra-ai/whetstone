@@ -1,6 +1,6 @@
 # P4 — Round 0: scorer inoculation + the F1 band-existence gate
 
-STATUS: in-progress (activity 007)
+STATUS: done (activity 007)
 MACHINES: turing (training + eval forwards); spark (frozen-π_0 scoring passes, reward server)
 DEPENDS ON: P0–P3 all done (activities 001–005). Design decision 006 (32B teacher) shapes Part 5.
 BLOCKS: P5 (Stage A) and everything after — **F1 is the go/no-go for all teacher compute** (design §8 Risk 1, §11).

@@ -1,13 +1,13 @@
 # Packet roadmap — WHETSTONE v2 feasibility tier (Qwen3-1.7B on turing + spark)
 
 ```
-P0 env ──► P1 data ──► P2 preconditions ──► P3a register bake-off ──► P3 seed corpus ──► P4 Round 0 ══► F1 gate
+P0 env ──► P1 data ──► P2 preconditions ──► P3a register bake-off ──► P3 seed corpus ──► P4 Round 0 ══► F1 ✅ band exists (007)
                                             (P3 Part 1 seed harvest may run in parallel with P3a)
                                                                               │
                                             PASS ◄────────────────────────────┘──► FAIL → LoRA-scorer packet
                                              │
                                              ▼
-                       P5 Stage A (teacher GRPO) ══► F2 ──► P6 Stage B (assimilation) ══► F3
+                 P5 Stage A (32B best-of-K select) ══► F2 ──► P6 Stage B (assimilation) ══► F3
                                                                         │
                                                                         ▼
                                               P7 Stage C (segment-routed DAPO) ══► F4
@@ -29,7 +29,18 @@ Only **P0–P4 are written in full detail**. P5–P7 are deliberately outlines: 
 > keep the best. Gated on the `G_spike` × branch-retention correlation check in
 > activity 006 — the reward may select *against* the property the decision buys.
 
-## P5 — Stage A: compression-teacher GRPO (draft outline; expand after F1)
+## P5 — Stage A: teacher best-of-K selection (**UNBLOCKED — expand into a full packet next**)
+
+> **F1 passed on its design question (activity 007): the calibration band exists.**
+> Two binding inputs from that run:
+> (1) `G_spike` does **not** select against branch retention (r = −0.02, p = 0.47),
+>     so activity 006's 32B-teacher decision stands and the product reward is unchanged;
+> (2) `G_spike` **does** select against verification retention (r = −0.113, p < 1e-4),
+>     driven by a 7.92-nat residual tax on `chk`. **Add `verify_kept` as a selection
+>     term; do not lower λ.** Scorer is `spark:8100` (`whetstone-scorer`), λ=1, β∈{5,10}.
+> Note the outline below still says "GRPO"; activity 006 replaced that with
+> generate-and-select, and the G_budget bullet is a *selection* criterion now.
+
 
 - Design §3 + §12.2. Teacher = fresh Qwen3-1.7B copy, register card + exemplars + gold (+ verbose trace) **in context**; student-style prompt untouched.
 - Reward `R_acc · G_spike · G_budget` — product form is non-negotiable (design A5 tests why). G_spike scored by the **frozen scorer_v1 on spark** (per-batch prefill, `prompt_logprobs≥2`, λ modest / β ∈ {5,10}).
@@ -77,6 +88,67 @@ Suite roles — three tiers with different touch frequencies, so headline number
 - Small suites (AIME 30, AMC 40) are noisy — never quote them without the ± std, never subsample them.
 - **TODO (next executing agent, ~30 min on spark):** `gsm8k_test.jsonl` is not yet built — add the suite to `build_eval_sets.py` (`openai/gsm8k` config `main`, split `test`, same schema, pin revision) and emit to `/data/whetstone/eval/`. Contamination pre-cleared: activity 002 Run 5 checked the train pool against GSM8K-test — 0 hits.
 - Baselines (SCA / DeepCompress / prompted-compressor arms) run the identical protocol from the same checkpoint — numbers are only comparable inside the same tier and protocol.
+
+## Facts pinned by activity 007 (P4 / **F1 gate**) — binding on all later packets
+
+- **F1 PASSES on the design question: the calibration band exists.** The register
+  style tax is removable — held-out R-token mean surprisal **13.065 → 1.154 nats
+  (91%)**, `goal` from **39.98 → 1.21** — while the corrupted-trace leap detector
+  is essentially unchanged (**probe AUC 0.823 → 0.810**). Design §8 Risk 1 is
+  retired; **the prefix/LoRA scorer arm is not needed.**
+- **F1 fails the packet's literal criterion** (all three meter tests at
+  τ_spike = 1.2) at every one of 13 checkpoints. Binding failure is test (a).
+  **τ_spike = 1.2 was inherited from a corpus whose step-0 register p95 was
+  2.375; this corpus's is 6.375.** The verbose baseline reproduces *exactly*
+  (0.750), so this is a corpus difference, not a measurement one.
+- **Pinned: τ_spike = 2.25, τ_leap = 3.175, κ_max = 0.3174, ε = 0.2, γ_e = 1.0,
+  entropy floor x = 10% (cannot fire — see below).** S2's noise floor is
+  **0.00094** (π_0 scored against its own cache), and κ_max is in those units.
+- **`scorer_v1` = Round-0 step 20**, frozen at `/data/whetstone/ckpt/scorer_v1`,
+  **serving on `spark:8100` as `whetstone-scorer`**; d_t contract re-verified
+  over HTTP (4,932/4,932 positions, all 4,188 rank-1 positions exactly 0).
+  Chosen on design §2's "smallest dose": step 80 removes 3% more tax for 2.3× the
+  KL drift and 40× the boundary damage. Non-winner checkpoints are **kept** under
+  `/data/whetstone/ckpt/round0/` until P5 confirms the choice.
+- **G_spike does NOT select against branch retention** (r_pb = −0.021, p = 0.47
+  at β=5; −0.023, p = 0.44 at β=10; n = 1,200 32B traces). Activity 006's
+  decision stands and **P5 proceeds with the unchanged product reward.**
+- **G_spike DOES select against verification retention** — r_pb = **−0.113,
+  p < 0.0001** (`verify_kept`), and `structural_pass` −0.062 / p = 0.032. Cause:
+  a residual tax of **7.92 nats mean / 12.0 p95 on `chk`**, the largest of any
+  marker, against `⇒` 0.087 and `let` 0.065. **P5 should add `verify_kept` as a
+  selection term** (006 open item 2's fix, safe under one-shot Goodhart with a
+  frozen teacher). **Do not lower λ** — the tax is in the p95 tail, not the mean.
+- **Calibration is context-dependent, not token-dependent.** `chk` is calibrated
+  in the *student's* usage (trailing `chk:` line) and not in the *teacher's*
+  (mid-trace, richer expressions), despite 308 training occurrences. Expect the
+  same wherever the teacher's register differs from the Round-0 corpus.
+- **The instrument is shallow but honest: probe AUC 0.81** on single localized
+  corruptions. Do not design a stage that needs a sharp threshold.
+- **Inoculation degrades the native `</think>` boundary**: entropy
+  7.6e-05 → 0.045 (step 20) → ~1.8–2.0 (step 40+), while the *averaged* verbose
+  Δlogp barely moves (−0.085). Nothing downstream scores that position today
+  (it is excluded from `think_mask`); anything that starts to must re-measure.
+  This is a fourth Round-0 stopping signal the packet did not specify.
+- **S3 cannot fire in restoration mode.** Control think entropy *rose* (mean
+  0.2910 → 0.3778, +29.8%; median 0.0173 → 0.0664). The packet's median-based
+  form has no resolving power anyway — the audit median is 0.0278 nats with 56.8%
+  collapse mass, so 10% of it is noise. Report mean and p80; trip on the mean.
+- **Numerics (binding on every trainer):** full-FT of 1.7B on one 32 GB card
+  needs **fp32 master weights** — a 1e-5 Adam update is 12× below bf16's quantum
+  and every update rounds to zero silently. fp32 weights + fp32 grads + fp32 Adam
+  + SED shadow = 28.9 GiB and OOMs, so **8-bit Adam moments** (`bitsandbytes`,
+  now in `pyproject.toml`) are the default. **Log `theta_drift` every eval.**
+  `get_cosine_schedule_with_warmup` runs the **first** optimizer step at LR 0.
+- **Eval forwards need bf16 autocast** even with fp32 weights: fp32 SDPA falls
+  back to the math backend and materializes a full (T,T) attention matrix
+  (10 GiB on a 6.2k-token trace).
+- **turing's checkout is `~/workspace/whetstone`**, not `~/git/whetstone`
+  (spark's *is* `~/git/whetstone`). Do not write scratch scripts to `/tmp` on
+  turing — a stale `/tmp/inspect.py` shadows the stdlib `inspect` module.
+- **The `</think>` sanity anchor is a statement about NATIVE traces** (median
+  6.6e-05). On compact register traces the same quantity is legitimately ~0.275
+  under π_0 — applying the anchor there looks like an off-by-one bug that is not.
 
 ## Standing rules for every future packet
 

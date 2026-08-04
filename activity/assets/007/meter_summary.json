@@ -1,0 +1,548 @@
+{
+ "step0000": {
+  "align_close_entropy_median": 7.994383122422732e-05,
+  "a_register_hum": {
+   "p95_overall": 6.375,
+   "pass": false,
+   "p95_R_tokens": 40.82578124999999,
+   "pass_R": false,
+   "mean_gap_R": 12.745278614492559,
+   "hum_R_mean_surprisal": 13.065020211967681,
+   "p95_structural": 41.158203125,
+   "pass_structural": false,
+   "p95_branch": 23.47109375,
+   "pass_branch": false,
+   "n_branch_tokens": 68,
+   "qualified": false
+  },
+  "b_verbose_intact": {
+   "logprob_delta": 0.0,
+   "eps": 0.2,
+   "pass": true
+  },
+  "c_corrupted_probe": {
+   "n_pairs": 110,
+   "by_type": {
+    "delete": 51,
+    "substitute": 59
+   },
+   "tau_leap": 4.762499999999999,
+   "auc": 0.8234710743801653,
+   "tpr": 0.7454545454545455,
+   "fpr": 0.21818181818181817,
+   "tau_spike_suggested": 9.74468749999998,
+   "separation_ratio": 0.48872783247282264,
+   "clean_p95_median": 2.474999999999987,
+   "dirty_p95_median": 6.971875190734852,
+   "frac_corrupted_above_tau_leap": 0.7454545454545455,
+   "frac_clean_below_packet_tau_spike": 0.2818181818181818,
+   "frac_pairs_dirty_gt_clean": 0.9363636363636364,
+   "pass": true
+  },
+  "all_three_pass": false
+ },
+ "step0010": {
+  "align_close_entropy_median": 0.00018062579329125583,
+  "a_register_hum": {
+   "p95_overall": 5.375,
+   "pass": false,
+   "p95_R_tokens": 13.159374999999997,
+   "pass_R": false,
+   "mean_gap_R": 5.187826490847033,
+   "hum_R_mean_surprisal": 5.801232544094417,
+   "p95_structural": 12.6796875,
+   "pass_structural": false,
+   "p95_branch": 14.934375,
+   "pass_branch": false,
+   "n_branch_tokens": 68,
+   "qualified": false
+  },
+  "b_verbose_intact": {
+   "logprob_delta": -0.002749683382269985,
+   "eps": 0.2,
+   "pass": true
+  },
+  "c_corrupted_probe": {
+   "n_pairs": 110,
+   "by_type": {
+    "delete": 51,
+    "substitute": 59
+   },
+   "tau_leap": 3.6562502264976486,
+   "auc": 0.8133471074380165,
+   "tpr": 0.8363636363636363,
+   "fpr": 0.3090909090909091,
+   "tau_spike_suggested": 8.276249999999981,
+   "separation_ratio": 0.44177619410936797,
+   "clean_p95_median": 2.2687500268220893,
+   "dirty_p95_median": 6.059374999999997,
+   "frac_corrupted_above_tau_leap": 0.8363636363636363,
+   "frac_clean_below_packet_tau_spike": 0.2727272727272727,
+   "frac_pairs_dirty_gt_clean": 0.9181818181818182,
+   "pass": false
+  },
+  "all_three_pass": false
+ },
+ "step0020": {
+  "align_close_entropy_median": NaN,
+  "a_register_hum": {
+   "p95_overall": 3.500000238418579,
+   "pass": false,
+   "p95_R_tokens": 5.25,
+   "pass_R": false,
+   "mean_gap_R": 0.7281716405455746,
+   "hum_R_mean_surprisal": 1.1535798013217302,
+   "p95_structural": 3.609375,
+   "pass_structural": false,
+   "p95_branch": 8.818749999999998,
+   "pass_branch": false,
+   "n_branch_tokens": 68,
+   "qualified": false
+  },
+  "b_verbose_intact": {
+   "logprob_delta": -0.044574803914998774,
+   "eps": 0.2,
+   "pass": true
+  },
+  "c_corrupted_probe": {
+   "n_pairs": 110,
+   "by_type": {
+    "delete": 51,
+    "substitute": 59
+   },
+   "tau_leap": 3.174999999999999,
+   "auc": 0.8096694214876033,
+   "tpr": 0.7818181818181819,
+   "fpr": 0.2636363636363636,
+   "tau_spike_suggested": 4.842499999999999,
+   "separation_ratio": 0.6556530717604542,
+   "clean_p95_median": 2.234374999999992,
+   "dirty_p95_median": 3.9999999999999956,
+   "frac_corrupted_above_tau_leap": 0.7818181818181819,
+   "frac_clean_below_packet_tau_spike": 0.2727272727272727,
+   "frac_pairs_dirty_gt_clean": 0.9,
+   "pass": true
+  },
+  "all_three_pass": false
+ },
+ "step0030": {
+  "align_close_entropy_median": NaN,
+  "a_register_hum": {
+   "p95_overall": 3.125000238418579,
+   "pass": false,
+   "p95_R_tokens": 3.6937498688697756,
+   "pass_R": false,
+   "mean_gap_R": 0.7954757439556407,
+   "hum_R_mean_surprisal": 1.1064354274439374,
+   "p95_structural": 8.2578125,
+   "pass_structural": false,
+   "p95_branch": 3.625,
+   "pass_branch": false,
+   "n_branch_tokens": 68,
+   "qualified": false
+  },
+  "b_verbose_intact": {
+   "logprob_delta": -0.07538654879070907,
+   "eps": 0.2,
+   "pass": true
+  },
+  "c_corrupted_probe": {
+   "n_pairs": 110,
+   "by_type": {
+    "delete": 51,
+    "substitute": 59
+   },
+   "tau_leap": 3.124999999999993,
+   "auc": 0.7994214876033058,
+   "tpr": 0.6545454545454545,
+   "fpr": 0.17272727272727273,
+   "tau_spike_suggested": 4.8528124999999855,
+   "separation_ratio": 0.6439564685427269,
+   "clean_p95_median": 1.659375020861623,
+   "dirty_p95_median": 3.437499916553497,
+   "frac_corrupted_above_tau_leap": 0.6545454545454545,
+   "frac_clean_below_packet_tau_spike": 0.36363636363636365,
+   "frac_pairs_dirty_gt_clean": 0.8727272727272727,
+   "pass": true
+  },
+  "all_three_pass": false
+ },
+ "step0040": {
+  "align_close_entropy_median": NaN,
+  "a_register_hum": {
+   "p95_overall": 3.5,
+   "pass": false,
+   "p95_R_tokens": 8.199999999999989,
+   "pass_R": false,
+   "mean_gap_R": 1.2044776131857686,
+   "hum_R_mean_surprisal": 1.4607592624280021,
+   "p95_structural": 9.46875,
+   "pass_structural": false,
+   "p95_branch": 1.3312499999999998,
+   "pass_branch": false,
+   "n_branch_tokens": 68,
+   "qualified": false
+  },
+  "b_verbose_intact": {
+   "logprob_delta": -0.08512255781880765,
+   "eps": 0.2,
+   "pass": true
+  },
+  "c_corrupted_probe": {
+   "n_pairs": 110,
+   "by_type": {
+    "delete": 51,
+    "substitute": 59
+   },
+   "tau_leap": 2.9062499999999947,
+   "auc": 0.7963223140495868,
+   "tpr": 0.7272727272727273,
+   "fpr": 0.24545454545454545,
+   "tau_spike_suggested": 5.062812499999998,
+   "separation_ratio": 0.5740386395901479,
+   "clean_p95_median": 1.753124973177908,
+   "dirty_p95_median": 3.9062499999999947,
+   "frac_corrupted_above_tau_leap": 0.7272727272727273,
+   "frac_clean_below_packet_tau_spike": 0.36363636363636365,
+   "frac_pairs_dirty_gt_clean": 0.8727272727272727,
+   "pass": true
+  },
+  "all_three_pass": false
+ },
+ "step0050": {
+  "align_close_entropy_median": NaN,
+  "a_register_hum": {
+   "p95_overall": 3.75,
+   "pass": false,
+   "p95_R_tokens": 13.25,
+   "pass_R": false,
+   "mean_gap_R": 2.187173505861368,
+   "hum_R_mean_surprisal": 2.385344606916286,
+   "p95_structural": 14.421875,
+   "pass_structural": false,
+   "p95_branch": 4.4937499999999995,
+   "pass_branch": false,
+   "n_branch_tokens": 68,
+   "qualified": false
+  },
+  "b_verbose_intact": {
+   "logprob_delta": -0.08035873791923744,
+   "eps": 0.2,
+   "pass": true
+  },
+  "c_corrupted_probe": {
+   "n_pairs": 110,
+   "by_type": {
+    "delete": 51,
+    "substitute": 59
+   },
+   "tau_leap": 2.993749999999997,
+   "auc": 0.7997520661157025,
+   "tpr": 0.7545454545454545,
+   "fpr": 0.2545454545454545,
+   "tau_spike_suggested": 5.605312499999999,
+   "separation_ratio": 0.5340915426213966,
+   "clean_p95_median": 1.9031249999999966,
+   "dirty_p95_median": 4.0437499999999975,
+   "frac_corrupted_above_tau_leap": 0.7545454545454545,
+   "frac_clean_below_packet_tau_spike": 0.3,
+   "frac_pairs_dirty_gt_clean": 0.9,
+   "pass": true
+  },
+  "all_three_pass": false
+ },
+ "step0060": {
+  "align_close_entropy_median": NaN,
+  "a_register_hum": {
+   "p95_overall": 3.625,
+   "pass": false,
+   "p95_R_tokens": 4.125,
+   "pass_R": false,
+   "mean_gap_R": 0.7527052223682403,
+   "hum_R_mean_surprisal": 0.9603781238101001,
+   "p95_structural": 5.65625,
+   "pass_structural": false,
+   "p95_branch": 3.0374999999999996,
+   "pass_branch": false,
+   "n_branch_tokens": 68,
+   "qualified": false
+  },
+  "b_verbose_intact": {
+   "logprob_delta": -0.08070785237000218,
+   "eps": 0.2,
+   "pass": true
+  },
+  "c_corrupted_probe": {
+   "n_pairs": 110,
+   "by_type": {
+    "delete": 51,
+    "substitute": 59
+   },
+   "tau_leap": 3.0249999999999986,
+   "auc": 0.8074380165289257,
+   "tpr": 0.7454545454545455,
+   "fpr": 0.2545454545454545,
+   "tau_spike_suggested": 5.722187451720231,
+   "separation_ratio": 0.5286439889505208,
+   "clean_p95_median": 1.7749999731779085,
+   "dirty_p95_median": 3.924999999999997,
+   "frac_corrupted_above_tau_leap": 0.7454545454545455,
+   "frac_clean_below_packet_tau_spike": 0.3181818181818182,
+   "frac_pairs_dirty_gt_clean": 0.9090909090909091,
+   "pass": true
+  },
+  "all_three_pass": false
+ },
+ "step0070": {
+  "align_close_entropy_median": NaN,
+  "a_register_hum": {
+   "p95_overall": 3.5,
+   "pass": false,
+   "p95_R_tokens": 5.662499999999966,
+   "pass_R": false,
+   "mean_gap_R": 0.7157649256400208,
+   "hum_R_mean_surprisal": 0.9036679596871983,
+   "p95_structural": 8.890625,
+   "pass_structural": false,
+   "p95_branch": 1.2812499999999991,
+   "pass_branch": false,
+   "n_branch_tokens": 68,
+   "qualified": false
+  },
+  "b_verbose_intact": {
+   "logprob_delta": -0.0827930494377217,
+   "eps": 0.2,
+   "pass": true
+  },
+  "c_corrupted_probe": {
+   "n_pairs": 110,
+   "by_type": {
+    "delete": 51,
+    "substitute": 59
+   },
+   "tau_leap": 2.674999999999999,
+   "auc": 0.8088429752066115,
+   "tpr": 0.8181818181818182,
+   "fpr": 0.3090909090909091,
+   "tau_spike_suggested": 5.417812499999993,
+   "separation_ratio": 0.493741708484744,
+   "clean_p95_median": 1.7249999999999988,
+   "dirty_p95_median": 4.178124999999995,
+   "frac_corrupted_above_tau_leap": 0.8181818181818182,
+   "frac_clean_below_packet_tau_spike": 0.4,
+   "frac_pairs_dirty_gt_clean": 0.9181818181818182,
+   "pass": false
+  },
+  "all_three_pass": false
+ },
+ "step0080": {
+  "align_close_entropy_median": NaN,
+  "a_register_hum": {
+   "p95_overall": 3.625,
+   "pass": false,
+   "p95_R_tokens": 4.762499999999989,
+   "pass_R": false,
+   "mean_gap_R": 0.671641790955814,
+   "hum_R_mean_surprisal": 0.825844468634592,
+   "p95_structural": 7.15625,
+   "pass_structural": false,
+   "p95_branch": 2.45625,
+   "pass_branch": false,
+   "n_branch_tokens": 68,
+   "qualified": false
+  },
+  "b_verbose_intact": {
+   "logprob_delta": -0.08536412095442972,
+   "eps": 0.2,
+   "pass": true
+  },
+  "c_corrupted_probe": {
+   "n_pairs": 110,
+   "by_type": {
+    "delete": 51,
+    "substitute": 59
+   },
+   "tau_leap": 3.375,
+   "auc": 0.8159504132231405,
+   "tpr": 0.6909090909090909,
+   "fpr": 0.17272727272727273,
+   "tau_spike_suggested": 5.4815624999999955,
+   "separation_ratio": 0.6157003591585434,
+   "clean_p95_median": 1.7812499999999942,
+   "dirty_p95_median": 4.228124999999995,
+   "frac_corrupted_above_tau_leap": 0.6909090909090909,
+   "frac_clean_below_packet_tau_spike": 0.32727272727272727,
+   "frac_pairs_dirty_gt_clean": 0.9363636363636364,
+   "pass": true
+  },
+  "all_three_pass": false
+ },
+ "step0090": {
+  "align_close_entropy_median": NaN,
+  "a_register_hum": {
+   "p95_overall": 3.5,
+   "pass": false,
+   "p95_R_tokens": 5.75,
+   "pass_R": false,
+   "mean_gap_R": 0.7332089555352481,
+   "hum_R_mean_surprisal": 0.8846609555071242,
+   "p95_structural": 7.21875,
+   "pass_structural": false,
+   "p95_branch": 4.33125,
+   "pass_branch": false,
+   "n_branch_tokens": 68,
+   "qualified": false
+  },
+  "b_verbose_intact": {
+   "logprob_delta": -0.0868775390100151,
+   "eps": 0.2,
+   "pass": true
+  },
+  "c_corrupted_probe": {
+   "n_pairs": 110,
+   "by_type": {
+    "delete": 51,
+    "substitute": 59
+   },
+   "tau_leap": 2.5249999999999986,
+   "auc": 0.8164876033057851,
+   "tpr": 0.8636363636363636,
+   "fpr": 0.34545454545454546,
+   "tau_spike_suggested": 5.4678124999999955,
+   "separation_ratio": 0.4617934503057668,
+   "clean_p95_median": 1.8906249999999938,
+   "dirty_p95_median": 4.193750053644177,
+   "frac_corrupted_above_tau_leap": 0.8636363636363636,
+   "frac_clean_below_packet_tau_spike": 0.3,
+   "frac_pairs_dirty_gt_clean": 0.9272727272727272,
+   "pass": false
+  },
+  "all_three_pass": false
+ },
+ "step0100": {
+  "align_close_entropy_median": NaN,
+  "a_register_hum": {
+   "p95_overall": 3.5,
+   "pass": false,
+   "p95_R_tokens": 7.012499999999989,
+   "pass_R": false,
+   "mean_gap_R": 0.7994402969061438,
+   "hum_R_mean_surprisal": 0.9776936011088143,
+   "p95_structural": 8.6875,
+   "pass_structural": false,
+   "p95_branch": 3.625,
+   "pass_branch": false,
+   "n_branch_tokens": 68,
+   "qualified": false
+  },
+  "b_verbose_intact": {
+   "logprob_delta": -0.08534260869664728,
+   "eps": 0.2,
+   "pass": true
+  },
+  "c_corrupted_probe": {
+   "n_pairs": 110,
+   "by_type": {
+    "delete": 51,
+    "substitute": 59
+   },
+   "tau_leap": 2.7750001311302173,
+   "auc": 0.8153719008264463,
+   "tpr": 0.8181818181818182,
+   "fpr": 0.3,
+   "tau_spike_suggested": 5.204062499999997,
+   "separation_ratio": 0.533237279746394,
+   "clean_p95_median": 1.8906249999999973,
+   "dirty_p95_median": 4.156250107288359,
+   "frac_corrupted_above_tau_leap": 0.8181818181818182,
+   "frac_clean_below_packet_tau_spike": 0.33636363636363636,
+   "frac_pairs_dirty_gt_clean": 0.9181818181818182,
+   "pass": false
+  },
+  "all_three_pass": false
+ },
+ "step0110": {
+  "align_close_entropy_median": NaN,
+  "a_register_hum": {
+   "p95_overall": 3.625,
+   "pass": false,
+   "p95_R_tokens": 9.596874999999997,
+   "pass_R": false,
+   "mean_gap_R": 1.060167910314318,
+   "hum_R_mean_surprisal": 1.2275420913303206,
+   "p95_structural": 10.671875,
+   "pass_structural": false,
+   "p95_branch": 3.9562498450279233,
+   "pass_branch": false,
+   "n_branch_tokens": 68,
+   "qualified": false
+  },
+  "b_verbose_intact": {
+   "logprob_delta": -0.08450424416823916,
+   "eps": 0.2,
+   "pass": true
+  },
+  "c_corrupted_probe": {
+   "n_pairs": 110,
+   "by_type": {
+    "delete": 51,
+    "substitute": 59
+   },
+   "tau_leap": 2.8562499999999975,
+   "auc": 0.8169834710743802,
+   "tpr": 0.8,
+   "fpr": 0.2818181818181818,
+   "tau_spike_suggested": 5.2215624999999966,
+   "separation_ratio": 0.5470105930935423,
+   "clean_p95_median": 1.8499999999999943,
+   "dirty_p95_median": 4.218749999999995,
+   "frac_corrupted_above_tau_leap": 0.8,
+   "frac_clean_below_packet_tau_spike": 0.3181818181818182,
+   "frac_pairs_dirty_gt_clean": 0.9363636363636364,
+   "pass": true
+  },
+  "all_three_pass": false
+ },
+ "step0120": {
+  "align_close_entropy_median": NaN,
+  "a_register_hum": {
+   "p95_overall": 3.6249998092651365,
+   "pass": false,
+   "p95_R_tokens": 9.375,
+   "pass_R": false,
+   "mean_gap_R": 1.0373134311455399,
+   "hum_R_mean_surprisal": 1.2027893835990213,
+   "p95_structural": 10.296875,
+   "pass_structural": false,
+   "p95_branch": 3.875000071525574,
+   "pass_branch": false,
+   "n_branch_tokens": 68,
+   "qualified": false
+  },
+  "b_verbose_intact": {
+   "logprob_delta": -0.08452350212420749,
+   "eps": 0.2,
+   "pass": true
+  },
+  "c_corrupted_probe": {
+   "n_pairs": 110,
+   "by_type": {
+    "delete": 51,
+    "substitute": 59
+   },
+   "tau_leap": 2.693749868869781,
+   "auc": 0.8157438016528925,
+   "tpr": 0.8181818181818182,
+   "fpr": 0.3,
+   "tau_spike_suggested": 5.259374999999997,
+   "separation_ratio": 0.512180604895027,
+   "clean_p95_median": 1.9031249731779065,
+   "dirty_p95_median": 4.193750053644177,
+   "frac_corrupted_above_tau_leap": 0.8181818181818182,
+   "frac_clean_below_packet_tau_spike": 0.3090909090909091,
+   "frac_pairs_dirty_gt_clean": 0.9272727272727272,
+   "pass": false
+  },
+  "all_three_pass": false
+ }
+}

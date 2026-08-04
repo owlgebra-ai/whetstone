@@ -1,0 +1,33 @@
+{
+ "stop_reason": "epoch cap (120 steps)",
+ "steps_run": 120,
+ "tau_spike": 1.2,
+ "kappa_max": 0.317438,
+ "entropy_drop_x": 0.1,
+ "gamma_e": 1.0,
+ "h_pivot": 0.6707,
+ "delta_max": 0.7,
+ "alpha_sed": 1.0,
+ "lr": 1e-05,
+ "accum": 8,
+ "optim": "adamw8bit",
+ "sed_max_think": 1024,
+ "norm_r": 6.257291666666666,
+ "n_R": 48,
+ "wall_seconds": 825.5353488922119,
+ "checkpoints": [
+  "step0000",
+  "step0010",
+  "step0020",
+  "step0030",
+  "step0040",
+  "step0050",
+  "step0060",
+  "step0070",
+  "step0080",
+  "step0090",
+  "step0100",
+  "step0110",
+  "step0120"
+ ]
+}

@@ -266,13 +266,13 @@ All scorer quantities come from **one teacher-forced vLLM prefill pass** per bat
 | G_budget μ / B_0 / B_target / s_min | 1 / median seed-compact length / 600 / 40 tok | v1 552-token sweet spot; freeze rule §3.2 |
 | Teacher GRPO group / T | 8 / 0.9 | v1 / Pedagogical RL |
 | ZPD κ / γ / α_nov / s_cap | 1 / from histogram (init log 1e-4) / 0.5 / 4 nats | Pedagogical RL assimilation; §4.1 |
-| SED α_sed / Δ_max / H_pivot / EMA / τ̂ range / top-k | 1 / **0.7 — restoration mode, PINNED by activity 003** / 80th pct audit (**still unpinned** — needs the P3 compact corpus) / (5, 0.99) / [1.1, 1.5] / 512 | CurioSFT |
+| SED α_sed / Δ_max / H_pivot / EMA / τ̂ range / top-k | 1 / **0.7 — restoration mode, PINNED by activity 003** / **0.6707 — PINNED by activity 005** / (5, 0.99) / [1.1, 1.5] / 512 | CurioSFT; kernel + 6 unit tests shipped in `whetstone/sed.py` by activity 007, shared verbatim with Stage B (**new EMA copy per stage**) |
 | TEA (τ_c, λ_TEA, c) | (1.0, 0.05, 100) — ⚠ activity 003: this checkpoint's second entropy mode is at **≈0.7 nats**, *below* τ_c = 1.0. Sweep τ_c in run 1. | Light-IF |
 | DAPO clip / LR / group | 0.2, 0.28 / 1e-6 / 8 | v1 §7.3 |
 | Answer band f / λ_align | 32 / 0.1* | SCA (f); *λ_align set on 1.7B run |
 | Difficulty amplification α | 0.5 | SCA |
 | Rescue M / rescue LR | 4 / 5e-6, ≤1 epoch* | §5.2; *set on 1.7B run |
-| Inoculation LR / τ_spike / κ_max / entropy floor x | 1e-5 / ≈4 nats* / * / 10%* | §2; *calibrated on the 1.7B band-existence check |
+| Inoculation LR / τ_spike / τ_leap / κ_max / entropy floor x / γ_e | 1e-5 / **2.25** / **3.175** / **0.3174** / 10% (never fires — see below) / **1.0** | §2; **all PINNED by activity 007** (F1 run, Qwen3-1.7B). The 4-nat τ_spike placeholder and the packet's 1.2 replacement are both retired: this corpus's step-0 register p95 is 6.375, not the 2.375 activity 004 measured. τ_spike = clean-span median under scorer_v1; τ_leap = Youden-optimal on 110 paired corrupted/clean probes (AUC 0.810). **x cannot fire in restoration mode** — entropy *rose* 29.8%; the guard against inflation is meter test (c), not S3. |
 
 Asterisked values are declared placeholders: the 1.7B feasibility run exists to pin them before they are treated as defaults.
 
