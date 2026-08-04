@@ -261,8 +261,21 @@ def main() -> int:
                          "TEACHER's template, so it is the teacher's")
     ap.add_argument("--card", default="configs/register_card.md")
     ap.add_argument("--k", type=int, default=8)
+    # The two budgets are deliberately NOT symmetric, and the asymmetry is the
+    # point (measured on the first 1,024 calibration drafts, activity 008):
+    #
+    # * A think segment over 2,048 tokens has already failed the register's own
+    #   premise — B_target is 600 and the observed median is 160. `cap_think`
+    #   is therefore a *signal* ("the teacher could not write this compactly"),
+    #   and the level-9 problems it fires on are Stage-C rescue's clientele.
+    #   Raising it would launder a failure into a long trace.
+    # * The answer segment carries no length pressure at all: G_budget is
+    #   think-only (design §3.2) and card §1.5 makes the answer a normal LaTeX
+    #   solution. `cap_answer` is therefore a pure budget *artifact* — and at
+    #   1,024 it fired on 15.4% of level 6 and 0.0% of level 1, i.e. it biased
+    #   the corpus against exactly the hard band the project's claims live in.
     ap.add_argument("--max_think_tokens", type=int, default=2048)
-    ap.add_argument("--max_answer_tokens", type=int, default=1024)
+    ap.add_argument("--max_answer_tokens", type=int, default=2048)
     ap.add_argument("--chunk", type=int, default=512,
                     help="drafts per phase-1/phase-2 round trip. Only affects "
                          "how often results land on disk; resume is per draft.")
