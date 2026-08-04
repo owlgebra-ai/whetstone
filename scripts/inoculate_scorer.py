@@ -123,6 +123,8 @@ def main() -> int:
     ap.add_argument("--lr", type=float, default=1e-5)
     ap.add_argument("--warmup", type=int, default=20, help="optimizer steps")
     ap.add_argument("--accum", type=int, default=8)
+    ap.add_argument("--optim", choices=["adamw8bit", "adamw"], default="adamw8bit",
+                    help="8-bit Adam moments; fp32 master weights either way (see below)")
     ap.add_argument("--epochs", type=float, default=1.0)
     ap.add_argument("--alpha-sed", type=float, default=1.0)
     ap.add_argument("--gamma-e", type=float, default=1.0)
@@ -213,10 +215,21 @@ def main() -> int:
     total_steps = int(steps_per_epoch * args.epochs)
     if args.max_steps:
         total_steps = min(total_steps, args.max_steps)
-    opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=0.0, fused=True)
+    # Optimizer-state precision is forced by the card, and the packet's budget
+    # (theta 3.4 + grads 3.4 + AdamW ~13.6) assumed bf16 weights with fp32
+    # moments — a combination torch cannot express, and one that no-ops anyway:
+    # a 1e-5 Adam update is 12x below bf16's quantum at a typical weight. With
+    # fp32 weights, full AdamW needs 28.9 GiB resident and OOMs on activations.
+    # 8-bit moments keep the fp32 master weights (the part that matters) and
+    # bring it to 19.2 GiB. Verified to produce the same 1e-5 step magnitude.
+    if args.optim == "adamw8bit":
+        import bitsandbytes as bnb
+        opt = bnb.optim.AdamW8bit(model.parameters(), lr=args.lr, weight_decay=0.0)
+    else:
+        opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=0.0, fused=True)
     sched = get_cosine_schedule_with_warmup(opt, args.warmup, total_steps)
     print(f"[train] {total_steps} optimizer steps (accum {args.accum}, "
-          f"{args.epochs} epoch cap), eval every {args.eval_every}")
+          f"{args.epochs} epoch cap), eval every {args.eval_every}, optim {args.optim}")
 
     r_t = torch.tensor(r_arr, device="cuda")
     theta0 = torch.cat([p.detach().float().reshape(-1)[::997] for p in model.parameters()]).clone()
@@ -377,6 +390,8 @@ def main() -> int:
         "alpha_sed": args.alpha_sed,
         "lr": args.lr,
         "accum": args.accum,
+        "optim": args.optim,
+        "sed_max_think": args.sed_max_think,
         "norm_r": norm_r,
         "n_R": len(r_ids),
         "wall_seconds": time.time() - t_start,

@@ -25,6 +25,15 @@ dependencies = [
     # Dashboards are first-class stage deliverables (design §7), not an
     # afterthought — the plotting dep is core, not an extra.
     "matplotlib>=3.9",
+    # 8-bit Adam moments for the Round-0 / Stage-B trainers (activity 007).
+    # Full-FT of 1.7B on one 32 GB card needs fp32 master weights (a 1e-5 Adam
+    # update is 12x below bf16's quantum, so bf16 weights silently no-op), and
+    # fp32 weights + fp32 grads + fp32 Adam moments + the SED shadow is 28.9 GiB
+    # resident — it OOMs on activations. Quantizing only the moments keeps the
+    # fp32 master weights and brings the run to 19.2 GiB.
+    "bitsandbytes>=0.50",
+    # Test runner (SED kernel + segment parser gates).
+    "pytest>=8",
     # Audit / cloud API (compression spot-check).
     "anthropic>=0.40",
     # CLI helpers.
