@@ -21,6 +21,19 @@ names them injects a spurious boundary into every prompt and makes the teacher's
 own output parse as malformed (P3 gotcha 1, card §1.5/§1.6). The instructions
 say "thinking block"; :func:`assert_no_boundary_tokens` enforces it.
 
+**The thinking block is prefilled, and it has to be** (measured, activity 008
+smoke run). Asked in a system prompt to think in the compact register, the 32B
+complies in the *answer* channel and thinks natively anyway: 50 drafts came back
+at **0.11 register markers per 100 think chars against the same model's 2.10
+raw baseline** (activity 006), with ``goal`` opening 1 trace out of 38. An
+instruction addressed to a thinking model's scratchpad does not reach it — the
+scratchpad is where it does what it always does. Prefilling ``<think>\\ngoal:``
+puts the sampler *inside* the register at token one, and ``goal`` is the
+register's canonical opener (it opens 925 of 960 traces in the Round-0 corpus,
+and every card exemplar). The prefill's ids are prepended to the returned ids so
+the stored record is a genuine full rollout — never re-tokenized, since the
+prefill is what the model actually conditioned on and its ids are what it saw.
+
 **Inline CPU triage, as each draft lands** (packet §5): segment gate → no boxed
 answer inside the thinking block → deterministic verifier. Every draft is
 appended to the raw corpus **whether it passes or fails**, carrying its rejection
@@ -119,18 +132,25 @@ def draft_seed(uid: str, k: int, base: int) -> int:
     return int(h, 16)
 
 
-def build_prompt(tokenizer, system_prompt: str, rec: dict) -> str:
+#: Assistant prefill that opens the thinking block already in register. No
+#: trailing space: a trailing space would be merged into the model's first word
+#: piece by BPE and push it off the token boundaries the card was audited on.
+PREFILL_DEFAULT = "<think>\ngoal:"
+
+
+def build_prompt(tokenizer, system_prompt: str, rec: dict, prefill: str) -> str:
     if rec["conditioned_on"] == "gold+trace":
         user = USER_GOLD_TRACE.format(problem=rec["prompt"],
                                       gold=rec["ground_truth"],
                                       verbose=rec["verbose_think"])
     else:
         user = USER_GOLD.format(problem=rec["prompt"], gold=rec["ground_truth"])
-    return tokenizer.apply_chat_template(
+    text = tokenizer.apply_chat_template(
         [{"role": "system", "content": system_prompt},
          {"role": "user", "content": user}],
         tokenize=False, add_generation_prompt=True, enable_thinking=True,
     )
+    return text + prefill
 
 
 def triage(text: str, token_ids: list[int], gold: str) -> dict:
@@ -195,6 +215,11 @@ def main() -> int:
     ap.add_argument("--temperature", type=float, default=0.8)
     ap.add_argument("--top_p", type=float, default=0.95)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--prefill", default=PREFILL_DEFAULT,
+                    help="assistant prefill opening the thinking block in "
+                         "register. Pass '' to disable — but read the module "
+                         "docstring first: without it the register does not "
+                         "land at all.")
     ap.add_argument("--concurrency", type=int, default=8)
     ap.add_argument("--max_problems", type=int, default=0,
                     help="0 = all. The subset is pre-shuffled, so the first N "
@@ -213,11 +238,24 @@ def main() -> int:
     print(f"[card] {args.card} sha={_git_sha(args.card)[:12]} "
           f"rendered {stats['prompt_tokens']} tok, dropped {dropped}")
 
+    prefill_ids = (tokenizer.encode(args.prefill, add_special_tokens=False)
+                   if args.prefill else [])
+    if args.prefill:
+        from whetstone.segments import THINK_OPEN_ID
+        if not prefill_ids or prefill_ids[0] != THINK_OPEN_ID:
+            raise SystemExit(
+                f"[teacher] prefill {args.prefill!r} does not start with the "
+                f"<think> token ({THINK_OPEN_ID}); got {prefill_ids[:3]}. The "
+                "segment parser would then see a rollout with no think open.")
+        print(f"[prefill] {args.prefill!r} -> {len(prefill_ids)} ids "
+              f"{prefill_ids}")
+
     meta = {
         "teacher_model": args.model,
         "card_path": args.card,
         "card_git_sha": _git_sha(args.card),
         "rendered_prompt_sha1": _sha1(system_prompt),
+        "prefill": args.prefill,
         "temperature": args.temperature,
         "top_p": args.top_p,
         "max_tokens": args.max_tokens,
@@ -248,7 +286,7 @@ def main() -> int:
 
     bodies = [{
         "model": args.model,
-        "prompt": build_prompt(tokenizer, system_prompt, rec),
+        "prompt": build_prompt(tokenizer, system_prompt, rec, args.prefill),
         "max_tokens": args.max_tokens,
         "temperature": args.temperature,
         "top_p": args.top_p,
@@ -281,7 +319,14 @@ def main() -> int:
                                               "is return_token_ids supported?"}) + "\n")
             return
 
-        v = triage(res.text, res.token_ids, rec["ground_truth"])
+        # The prefill is part of the rollout: the model conditioned on those
+        # exact ids and continued from them, so prepending them reconstructs
+        # the true sequence. (Concatenating ids, never re-tokenizing the
+        # concatenated text — that would not round-trip at the boundary.)
+        full_text = args.prefill + res.text
+        full_ids = prefill_ids + list(res.token_ids)
+
+        v = triage(full_text, full_ids, rec["ground_truth"])
         state[f"reject:{v['reject_reason']}" if v["reject_reason"] else "kept"] += 1
         state["cap"] += int(res.finish_reason == "length")
 
@@ -296,9 +341,9 @@ def main() -> int:
             "trace_fallback_reason": rec.get("trace_fallback_reason"),
             "trace_candidate_idx": rec.get("trace_candidate_idx"),
             "verbose_think_tokens": rec.get("verbose_think_tokens"),
-            "raw_text": res.text,
-            "completion_token_ids": res.token_ids,
-            "n_tokens": len(res.token_ids),
+            "raw_text": full_text,
+            "completion_token_ids": full_ids,
+            "n_tokens": len(full_ids),
             "finish_reason": res.finish_reason,
             "draft_seed": draft_seed(rec["_uid"], k, args.seed),
             **v,
