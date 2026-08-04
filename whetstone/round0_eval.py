@@ -276,6 +276,7 @@ def evaluate(
     gaps_all: List[float] = []
     gaps_by_class: Dict[str, List[float]] = {k: [] for k in class_ids}
     surp_r: List[float] = []
+    gaps_r: List[float] = []
     surp_all: List[float] = []
     close_entropy: List[float] = []
 
@@ -294,6 +295,7 @@ def evaluate(
         sel_r = np.isin(tok_ids, list(r_ids))
         if sel_r.any():
             surp_r.extend(s["surprisal"][sel_r].tolist())
+            gaps_r.extend(s["gap"][sel_r].tolist())
 
         # Descriptive only — NOT the alignment anchor. Measured under pi_0 the
         # median here is 0.275 nats on compact traces, against 8.0e-05 on native
@@ -313,6 +315,13 @@ def evaluate(
         "s1_max_gap": float(np.max(gaps_all)) if gaps_all else math.nan,
         "hum_R_mean_surprisal": float(np.mean(surp_r)) if surp_r else math.nan,
         "hum_R_n": len(surp_r),
+        # Test (a) asks whether the REGISTER spikes. `s1_p95_gap` is taken over
+        # every think token, so it also carries the trace's mathematical content
+        # — tokens the scorer has no reason to predict and that inoculation is
+        # not meant to touch. The R-restricted gap is the direct measurement of
+        # the design's "register = hum (elevated mean, no spikes)" condition.
+        "s1_p95_gap_R": percentile(gaps_r, 95),
+        "s1_mean_gap_R": float(np.mean(gaps_r)) if gaps_r else math.nan,
         "heldout_mean_surprisal": float(np.mean(surp_all)) if surp_all else math.nan,
         "heldout_think_tokens": len(gaps_all),
         # entropy_audit.py reports the MEDIAN of this (activities 003/005 quote

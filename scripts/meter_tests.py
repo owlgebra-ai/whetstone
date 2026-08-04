@@ -229,6 +229,7 @@ def main() -> int:
         # replacing it — quoting only the self-derived one would be circular.
         tau_spike_suggested = float(percentile(clean.tolist(), 95))
 
+        a_pass_R = m["s1_p95_gap_R"] < args.tau_spike
         a_pass = m["s1_p95_gap"] < args.tau_spike
         a_branch = m.get("s1_p95_gap_branch", float("nan")) < args.tau_spike
         a_struct = m.get("s1_p95_gap_structural", float("nan")) < args.tau_spike
@@ -249,6 +250,9 @@ def main() -> int:
             "align_close_entropy_median": align,
             "a_register_hum": {
                 "p95_overall": m["s1_p95_gap"], "pass": bool(a_pass),
+                "p95_R_tokens": m["s1_p95_gap_R"], "pass_R": bool(a_pass_R),
+                "mean_gap_R": m["s1_mean_gap_R"],
+                "hum_R_mean_surprisal": m["hum_R_mean_surprisal"],
                 "p95_structural": m.get("s1_p95_gap_structural"),
                 "pass_structural": bool(a_struct),
                 "p95_branch": m.get("s1_p95_gap_branch"),
@@ -277,6 +281,8 @@ def main() -> int:
             "pairs": res,
         }
 
+        print(f"    R-token gap p95={m['s1_p95_gap_R']:.3f} (register only) | "
+              f"hum_R surprisal={m['hum_R_mean_surprisal']:.3f}")
         print(f"(a) register hum : p95={m['s1_p95_gap']:.3f} < {args.tau_spike} -> "
               f"{'PASS' if a_pass else 'FAIL'} | structural={m.get('s1_p95_gap_structural'):.3f} "
               f"branch={m.get('s1_p95_gap_branch'):.3f} (n={m.get('s1_n_branch')})")
