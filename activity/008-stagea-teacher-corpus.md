@@ -562,7 +562,87 @@ genuine gap in this run. (iii) This is a concrete instance of activity 007's
 sharp threshold", and it should be carried into Stage C, where G_spike-like
 terms enter an actual optimiser and Goodhart pressure is no longer one-shot.
 
-### 11. Throughput and the queue-depth risk
+### 11. Temperature is a real but unproven lever on branch diversity
+
+Finding 7 showed branch retention clustered per problem, which kills K as a
+lever. That leaves an obvious follow-up the finding could not answer: **is the
+clustering a property of the problem, or an artefact of not exploring enough at
+T = 0.8?** Run as a paired arm — same 48 source-branching problems (levels 1–9,
+round-robin), same K = 8, same seeds, **only the temperature differs**.
+
+| | T = 0.8 | T = 1.0 |
+|---|---|---|
+| keep rate | 95.3% | 96.4% |
+| `verify_ok` of kept | 100% | 100% |
+| in-register per draft | 74.6% | 72.4% |
+| `branch_kept` **per draft** | 20.8% | **17.8%** |
+| **branch ≥1 of 8, per problem** | **52.1%** | **62.5%** |
+| `verify_kept` per draft | 76.7% | 79.2% |
+| verify ≥1 of 8, per problem | 91.7% | 91.7% |
+| think tokens, median | 322 | 346 |
+| `boxed_in_think` trailer (trimmed) | 24.1% | **41.1%** |
+| `final_answer_trailer` (trimmed) | 6.4% | 13.3% |
+| `cap_think` | 2.5% | 3.6% |
+
+**The shape is exactly what decorrelation looks like:** the per-draft rate goes
+*down* (20.8% → 17.8%) while per-problem availability goes *up* (52.1% →
+62.5%). Same marginal rate, wider spread across the 8 samples, so more problems
+land at least one branch-keeping draft. That is evidence the clustering is not
+purely a property of the problem.
+
+**But it does not survive a significance test.** McNemar exact on the 47 paired
+problems: 8 gained, 3 lost, 36 unchanged, net +5, **p = 0.227**. At this n a
++10 pp effect is indistinguishable from noise. Settling it needs roughly
+150–250 paired problems; only the T=1.0 arm would have to be generated, since
+the T=0.8 baseline is the main corpus.
+
+Costs, for whoever runs that: T=1.0 nearly doubles the answer-trailer rate
+(24.1% → 41.1%) and raises `cap_think` by a point. Both are handled — trailers
+are trimmed and counted, cap-hits are rejected — so the quality cost is
+absorbed, but it is not free.
+
+**Not applied to this run.** Switching temperature mid-corpus would split it
+across two sampling regimes and make every later per-level comparison ambiguous
+— the same reasoning that led to regenerating after the budget fix rather than
+patching forward. This is evidence for the *next* generation, not this one.
+
+### 12. Compression is flat in absolute terms, so the ratio rises with difficulty
+
+Over the 5,240 drafts that have a verbose source:
+
+| level | verbose median | compact median | ratio | fold |
+|---|---|---|---|---|
+| 1 | 1,060 | 122 | 0.117 | 8.6× |
+| 3 | 2,051 | 250 | 0.094 | 10.6× |
+| 4 | 4,242 | 340 | 0.079 | 12.7× |
+| 5 | 4,754 | 408 | 0.086 | 11.6× |
+| 6 | 6,172 | 434 | 0.072 | 13.9× |
+| 7 | 6,189 | 382 | 0.061 | 16.5× |
+| 8 | 6,365 | 337 | 0.051 | 19.5× |
+| 9 | 7,943 | 300 | 0.038 | **26.4×** |
+| **all** | | | **0.081** | **12.4×** |
+
+The 32B is **far less aggressive than the alternatives** — activity 004's 1.7B
+one-shot compressed to 0.043 and activity 005's GLM to 0.030 — which is the
+right direction for faithfulness.
+
+**The interesting column is the compact median: it is nearly flat.** Verbose
+input grows 7.5× from level 1 to level 9 (1,060 → 7,943 tokens) while compact
+output stays in a 300–434 band. The teacher is not scaling its output to the
+reasoning it was given; it is writing roughly the same amount regardless.
+
+Read against findings 9 and 10 that is not a compression story but a
+**truncation** story: level 9 is simultaneously the most compressed (26×), the
+most prose-reverting (54%), the most assert-flagged (24%), and the
+worst-audited (57% faithful / 29% wrong). The consistent reading is that on
+hard problems the teacher stops *re-encoding* the reasoning and starts
+*summarising* it — same output budget, far more input, so content is dropped
+rather than compressed. Whoever revises the register card should treat "the
+compact trace must scale with the derivation" as the target, and
+`structural_gate.py`'s `lines_per_step` (currently disabled, threshold 0) as the
+measurement that would enforce it.
+
+### 13. Throughput and the queue-depth risk
 
 At the real chunk size (512, against the smoke's 64) throughput is **~54
 drafts/min**, not the 23.6 the smoke suggested — the K=8 group shares one prompt
@@ -580,7 +660,7 @@ of completed phase-1 generation (~10 min), because those results live in memory
 until phase 2 finishes. Acceptable here; worth knowing before choosing a larger
 chunk.
 
-### 12. Method note — a && chain behind `&` does not do what it looks like
+### 14. Method note — a && chain behind `&` does not do what it looks like
 
 The scorer ran 996 drafts on **8-commit-old code** after a one-liner of the shape
 `ssh box 'cd repo && git pull && rm out && nohup worker &'`. The `&` backgrounds
