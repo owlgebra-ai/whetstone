@@ -642,7 +642,71 @@ compact trace must scale with the derivation" as the target, and
 `structural_gate.py`'s `lines_per_step` (currently disabled, threshold 0) as the
 measurement that would enforce it.
 
-### 13. Throughput and the queue-depth risk
+### 13. **The teacher confabulates when it has the answer but not the reasoning**
+
+The pause rule fired at trailing-200 faithful 66.5% / wrong 16.5%. Investigating
+it produced the most important result of this packet.
+
+**First, most of the aggregate move was composition, not quality.** The
+trailing-200 level mix went from 58% level-1 to 17% level-1 as the corpus grew.
+Level 1 audits at ~95% faithful and level 9 at ~26%, so the aggregate tracks the
+sampler. Per level, nothing had statistically changed (L8–9 wrong 28.6% n=14 →
+46.2% n=39 is z = 1.15, p = 0.25).
+
+**But the per-level table showed the real structure:**
+
+| level | n | faithful | lossy | wrong |
+|---|---|---|---|---|
+| 1 | 99 | 94.9% | 3.0% | 2.0% |
+| 3 | 39 | 84.6% | 12.8% | 2.6% |
+| 4 | 28 | 82.1% | 17.9% | 0.0% |
+| 5 | 33 | 69.7% | 24.2% | 6.1% |
+| 6 | 40 | 55.0% | 25.0% | 20.0% |
+| 7 | 30 | 56.7% | 23.3% | 20.0% |
+| 8 | 29 | 65.5% | 17.2% | 17.2% |
+| **9** | 27 | **25.9%** | 11.1% | **63.0%** |
+
+And splitting the hard band by **conditioning mode** explains it:
+
+| hard band (L≥6) | n | faithful | lossy | **wrong** |
+|---|---|---|---|---|
+| `gold+trace` — teacher saw the reasoning | 104 | 58.7% | 22.1% | **19.2%** |
+| `gold` — teacher saw only the answer | 22 | **18.2%** | 9.1% | **72.7%** |
+
+**A 3.8× difference in wrong-rate, driven by conditioning rather than by
+difficulty.** Given a verbose trace the teacher compresses it; given only the
+answer on a hard problem it *invents a derivation that reaches the known
+answer*. That is exactly the failure design §3.2 assumed G_spike would catch and
+finding 10 showed it does not, and it is why the packet mandates this audit.
+
+The interaction matters: level 1 is **57.4%** gold-only and still audits at
+94.9% faithful. Confabulation is not a property of gold-only conditioning — it
+is what happens when the teacher is asked to derive something it *cannot*
+derive. Easy problems it can.
+
+**Exposure across the corpus:**
+
+| | problems | gold-only | of which `trace_too_long` (fixable) | no trace at all |
+|---|---|---|---|---|
+| all 4,000 | 4,000 | 1,540 (38.5%) | 214 | 1,326 |
+| hard band (L≥6) | 1,399 | 312 (22.3%) | **174** | 138 |
+| level 9 alone | 250 | 146 (58.4%) | — | — |
+
+**174 of the 312 risky hard-band problems are fixable and were fixed by
+accident of a cap.** They *have* a verified verbose trace; the teacher was not
+shown it only because the trace exceeded the 12,288-token conditioning cap that
+Run 1 flagged as "biting a real tail". The server's 32,768-token context leaves
+room for a ~26k-token trace beside the ~4k card, so most of those 214 could be
+re-run under `gold+trace`.
+
+**Two caveats that keep this honest.** (i) The audit can only judge problems
+that *have* a source, so the ~1,326 no-trace problems — generated under exactly
+the conditioning that produces 72.7% wrong — are **never audited at all**. The
+measured rates are therefore optimistic for the corpus as a whole. (ii) The
+`gold` hard-band cell is n = 22; the direction is stark but the estimate is not
+precise.
+
+### 14. Throughput and the queue-depth risk
 
 At the real chunk size (512, against the smoke's 64) throughput is **~54
 drafts/min**, not the 23.6 the smoke suggested — the K=8 group shares one prompt
@@ -660,7 +724,7 @@ of completed phase-1 generation (~10 min), because those results live in memory
 until phase 2 finishes. Acceptable here; worth knowing before choosing a larger
 chunk.
 
-### 14. Method note — a && chain behind `&` does not do what it looks like
+### 15. Method note — a && chain behind `&` does not do what it looks like
 
 The scorer ran 996 drafts on **8-commit-old code** after a one-liner of the shape
 `ssh box 'cd repo && git pull && rm out && nohup worker &'`. The `&` backgrounds
