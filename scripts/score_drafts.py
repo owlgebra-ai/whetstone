@@ -68,6 +68,28 @@ TAU_SPIKE = 2.25
 TAU_LEAP = 3.175
 B_TARGET = 600
 
+#: Right edges of the think-token surprisal histogram, in nats (last bin is
+#: open). Stored per draft so activity 006's open item 2 — "the ZPD masked
+#: fraction should be measured on the 32B corpus before Stage B is sized" — can
+#: be answered for *any* γ without re-scoring 32,000 drafts. Stage B's band-pass
+#: gate is σ(κ(log π_S(τ_t) − γ)), i.e. a threshold on exactly this quantity,
+#: and the corpus-wide histogram is what says how much of the teacher's text
+#: sits outside the student's reachable zone.
+SURPRISAL_BINS = (0.5, 1.0, 2.0, 4.0, 8.0, 16.0)
+
+
+def histogram(values, edges=SURPRISAL_BINS) -> list:
+    """Counts per bin; ``len(edges) + 1`` entries, last bin open-ended."""
+    out = [0] * (len(edges) + 1)
+    for v in values:
+        for i, e in enumerate(edges):
+            if v < e:
+                out[i] += 1
+                break
+        else:
+            out[-1] += 1
+    return out
+
 
 def g_budget(think_tokens: int, b_target: int = B_TARGET) -> float:
     """``exp[−μ·max(0, T_think − B)/B]``, μ=1 (design §3.2, soft tail).
@@ -311,7 +333,7 @@ def main() -> int:
                     state["contract_violation"] += 1
                     print(f"  !! {key} d_t contract: {exc}", flush=True)
                     continue
-                _, gaps = sc.at(seq.think_positions)
+                surp, gaps = sc.at(seq.think_positions)
                 t_think = seq.masks.think_len
                 rec = {
                     "_uid": key[0], "candidate_idx": key[1],
@@ -325,6 +347,18 @@ def main() -> int:
                     "g_spike_b5": g_spike(gaps, lam=1.0, beta=5.0) if gaps else None,
                     "g_spike_b10": g_spike(gaps, lam=1.0, beta=10.0) if gaps else None,
                     "g_budget": round(g_budget(t_think, args.b_target), 6),
+                    # Student-side surprisal of the teacher's think tokens.
+                    # Not used by selection — this is Stage B's sizing input
+                    # (activity 006 open item 2): how much of the teacher's
+                    # text sits outside the student's reachable zone.
+                    "think_surprisal_mean": (
+                        round(sum(surp) / len(surp), 6) if surp else None),
+                    "think_surprisal_p50": (
+                        round(percentile(surp, 50), 6) if surp else None),
+                    "think_surprisal_p90": (
+                        round(percentile(surp, 90), 6) if surp else None),
+                    "think_surprisal_hist": histogram(surp),
+                    "surprisal_bin_edges": list(SURPRISAL_BINS),
                     "scored_think_tokens": t_think,
                     "scored_answer_tokens": seq.masks.answer_len,
                     "scored_seq_tokens": len(seq.ids),

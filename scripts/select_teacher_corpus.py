@@ -393,7 +393,74 @@ def main() -> int:
         with open(args.report, "w") as fh:
             json.dump(report, fh, indent=1)
         print(f"[out] dashboard numbers -> {args.report}")
+
+    handoff = os.path.join(args.outdir, "STAGE_B_HANDOFF.md")
+    with open(handoff, "w") as fh:
+        fh.write(_handoff_text(out_path, unserved_path, args, report))
+    print(f"[out] Stage-B handoff -> {handoff}")
     return 0
+
+
+def _handoff_text(out_path, unserved_path, args, report) -> str:
+    st = report["structural"]
+    tl = report["think_tokens"]
+    return f"""# Stage-A → Stage-B handoff
+
+Written by `scripts/select_teacher_corpus.py`. Read this before P6 touches the
+corpus.
+
+## Paths
+
+| what | path |
+|---|---|
+| selected corpus | `{out_path}` |
+| raw drafts (append-only truth) | `{args.drafts}` |
+| scores sidecar | `{args.scores}` |
+| problem subset + verbose sources | `{args.subset}` |
+| unserved problems | `{unserved_path}` |
+
+## The one rule that will silently corrupt Stage B if ignored
+
+**Weight per problem, never per trace.** Use `1/n_kept` per trace, or sample one
+trace per problem per epoch. `n_kept` (1–{MAX_KEEP}) is a property of the
+teacher's sampling luck, not of the problem's value — per-trace weighting
+upweights whichever problems happened to yield diverse drafts, which correlates
+with difficulty and with trace length. Every record carries `n_kept`.
+
+Observed keeps per problem: `{report['keeps_per_problem']}`.
+
+## Record fields Stage B needs
+
+* `compact_think` / `answer` — the two segments. Rebuild the training sequence
+  with `whetstone.round0.build_completion_text`; do **not** re-split
+  `raw_text` on the decoded string.
+* `verbose_think` — the source trace, present iff the problem had one. Absent
+  for `no_source` records.
+* `think_surprisal_hist` + `surprisal_bin_edges` — per-draft histogram of
+  student-side surprisal over think tokens, under `scorer_v1`. **This is the
+  ZPD sizing input** (activity 006 open item 2): the band-pass gate is
+  σ(κ(log π_S(τ_t) − γ)), so the corpus-wide histogram gives the masked
+  fraction for any γ without re-scoring.
+* `g_spike_b5` / `g_spike_b10` / `g_budget` — selection inputs, kept for audit.
+  They are **not** training weights.
+
+## Caveats carried forward
+
+* The student starts from the **original** checkpoint, never from `scorer_v1`
+  (CLAUDE.md invariant). Round 0's EMA copy belongs to Round 0; Stage B builds
+  a new one.
+* Scorer gates must be **recomputed after every assimilation round** — stale
+  gates are a named drift failure.
+* Coverage is not uniform in difficulty: see the per-level table in
+  `{os.path.basename(out_path)}.meta.json`. `unserved` problems are Stage-C
+  rescue's clientele, not a silent loss.
+* Structural retention in this corpus: `verify_kept` raw
+  {st['raw_verify_kept_pct']}% → selected {st['sel_verify_kept_pct']}%;
+  `branch_kept` raw {st['raw_branch_kept_pct']}% → selected
+  {st['sel_branch_kept_pct']}%.
+* Think length median {tl['median']} tokens, IQR [{tl['p25']}, {tl['p75']}] —
+  report think and answer lengths separately, always.
+"""
 
 
 if __name__ == "__main__":
