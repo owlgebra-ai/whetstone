@@ -95,8 +95,20 @@ def main() -> int:
     ).cuda().eval()
     print(f"[scorer] {args.scorer}")
 
+    # Packet §9 step 3 asks for the residual tax on `case`/`X` specifically.
+    # MARKER_CLASSES lumps those with `chk`/`check`, and the 32B corpus keeps
+    # verification markers on 70.6% of traces but branches on only 13.9% — so
+    # the class average is mostly the verification vocabulary and would hide the
+    # branch vocabulary's own tax. Both granularities are reported.
+    from whetstone.round0 import MARKER_CLASSES, whitelist_token_ids
+    per_marker = {
+        s: frozenset(whitelist_token_ids(tok, [s]))
+        for s in sorted({m for v in MARKER_CLASSES.values() for m in v})
+    }
+
     rows: List[dict] = []
     branch_gaps: Dict[str, List[float]] = {k: [] for k in class_ids}
+    marker_gaps: Dict[str, List[float]] = {k: [] for k in per_marker}
     for i, r in enumerate(text, 1):
         st = struct.get(r["_uid"])
         if st is None:
@@ -117,6 +129,10 @@ def main() -> int:
             sel = np.isin(tok_ids, list(ids))
             if sel.any():
                 branch_gaps[name].extend(s["gap"][sel].tolist())
+        for name, ids in per_marker.items():
+            sel = np.isin(tok_ids, list(ids))
+            if sel.any():
+                marker_gaps[name].extend(s["gap"][sel].tolist())
 
         row = {
             "_uid": r["_uid"], "level": r.get("level", 0),
@@ -163,8 +179,14 @@ def main() -> int:
                 "n_kept": int(y.sum()), "n_dropped": int((~y).sum()),
             }
             e = sub[f"beta{b:g}"]
-            direction = ("NEGATIVE — G_spike selects AGAINST branch retention"
-                         if r_pb < 0 else "non-negative — no penalty on branch retention")
+            # Sign alone is not a verdict at r ~ 0.02: report significance.
+            if p > 0.05:
+                direction = ("NOT SIGNIFICANT — no measurable relationship "
+                             "(|r| too small to distinguish from zero)")
+            elif r_pb < 0:
+                direction = "NEGATIVE and significant — G_spike selects AGAINST branch retention"
+            else:
+                direction = "POSITIVE and significant — G_spike favours branch retention"
             print(f"[{subset} β={b:g}] r_pb={r_pb:+.4f} (t={t:+.2f}, p={p:.3g})  "
                   f"G_spike kept={e['mean_kept']:.4f} vs dropped={e['mean_dropped']:.4f}  → {direction}")
         # d_t itself, so the correlation can be read as a tax rather than a coincidence
@@ -176,6 +198,28 @@ def main() -> int:
                         "mean_kept": float(x[y].mean()) if y.any() else math.nan,
                         "mean_dropped": float(x[~y].mean()) if (~y).any() else math.nan}
         report[subset] = sub
+
+    report["g_spike_dynamic_range"] = {}
+    for b in args.betas:
+        x = np.array([r[f"g_spike_b{b:g}"] for r in rows])
+        report["g_spike_dynamic_range"][f"beta{b:g}"] = {
+            "min": float(x.min()), "p25": float(np.percentile(x, 25)),
+            "median": float(np.median(x)), "p75": float(np.percentile(x, 75)),
+            "max": float(x.max()), "mean": float(x.mean()),
+            "frac_below_1e3": float((x < 1e-3).mean()),
+        }
+        e = report["g_spike_dynamic_range"][f"beta{b:g}"]
+        print(f"[G_spike range β={b:g}] min={e['min']:.2e} median={e['median']:.2e} "
+              f"max={e['max']:.2e} | {e['frac_below_1e3']:.0%} of traces below 1e-3")
+
+    report["per_marker_residual_tax"] = {
+        name: {"mean_d": float(np.mean(v)), "p95_d": percentile(v, 95), "n": len(v)}
+        for name, v in marker_gaps.items() if v
+    }
+    print("[per-marker residual tax under scorer_v1]")
+    for name, v in sorted(report["per_marker_residual_tax"].items(),
+                          key=lambda kv: -kv[1]["mean_d"]):
+        print(f"    {name!r:<8} mean_d={v['mean_d']:>6.3f}  p95={v['p95_d']:>7.3f}  n={v['n']:>6}")
 
     report["marker_class_residual_tax"] = {
         name: {"mean_d": float(np.mean(v)), "p95_d": percentile(v, 95), "n": len(v)}
