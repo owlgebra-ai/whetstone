@@ -34,11 +34,28 @@ and every card exemplar). The prefill's ids are prepended to the returned ids so
 the stored record is a genuine full rollout — never re-tokenized, since the
 prefill is what the model actually conditioned on and its ids are what it saw.
 
-**Inline CPU triage, as each draft lands** (packet §5): segment gate → no boxed
-answer inside the thinking block → deterministic verifier. Every draft is
-appended to the raw corpus **whether it passes or fails**, carrying its rejection
-reason. Raw is append-only truth; selection is a separate, cheap, re-runnable
-pass over it and never mutates it.
+**Generation is two-phase, and the boundary is imposed rather than sampled**
+(deviation from packet §5's one-request-per-draft; measured, activity 008).
+Prefilled into the register, the model writes a clean compact trace and then
+imitates the card exemplars all the way to their end — it stops at ``⇒ 8`` or
+appends ``$$\\boxed{8}$$`` instead of closing the thinking block and writing a
+solution. **48% of prefilled drafts failed on that transition alone** (20%
+never emitted a close tag, 28% put the boxed result inside the block), with
+perfectly good register content in every one. So phase 1 generates the think
+segment with ``</think>`` as a stop string, and phase 2 generates the solution
+from the *cleaned* think body with the boundary already written. The shape stops
+being something the model has to remember.
+
+Phase 1's output goes through :func:`clean_oneshot` — the same trailer cleaner
+activity 005 built for exactly this artifact — and the flags it raises are
+recorded per draft rather than swallowed, because a rising trailer rate is card
+feedback.
+
+**Inline CPU triage** (packet §5): segment gate → no boxed answer inside the
+thinking block → deterministic verifier, all on the assembled completion. Every
+draft is appended to the raw corpus **whether it passes or fails**, carrying its
+rejection reason. Raw is append-only truth; selection is a separate, cheap,
+re-runnable pass over it and never mutates it.
 
 Usage::
 
@@ -71,7 +88,8 @@ from whetstone.verify import verify_response
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from compress_local_versionB import (  # noqa: E402
-    _BOXED, _git_sha, _sha1, assert_no_boundary_tokens, render_card,
+    _BOXED, _git_sha, _sha1, assert_no_boundary_tokens, clean_oneshot,
+    render_card,
 )
 
 #: Generation scaffold. Byte-identical across every draft in a run; its sha1 is
@@ -138,6 +156,13 @@ def draft_seed(uid: str, k: int, base: int) -> int:
 PREFILL_DEFAULT = "<think>\ngoal:"
 
 
+#: Text imposed between the two phases. Written as a format-time constant rather
+#: than inline so there is exactly one place the boundary is spelled, and so the
+#: assembled completion matches :func:`whetstone.round0.build_completion_text`
+#: byte for byte — the construction every downstream scoring pass rebuilds.
+THINK_CLOSE = "\n</think>\n\n"
+
+
 def build_prompt(tokenizer, system_prompt: str, rec: dict, prefill: str) -> str:
     if rec["conditioned_on"] == "gold+trace":
         user = USER_GOLD_TRACE.format(problem=rec["prompt"],
@@ -153,49 +178,74 @@ def build_prompt(tokenizer, system_prompt: str, rec: dict, prefill: str) -> str:
     return text + prefill
 
 
-def triage(text: str, token_ids: list[int], gold: str) -> dict:
-    """Segment gate → boxed-in-think → verifier. Returns the record's verdict
-    fields; ``reject_reason`` is ``None`` iff the draft survives.
+def triage(tokenizer, think: str, answer: str, gold: str) -> dict:
+    """Assemble the rollout, gate it, verify it. ``reject_reason`` is ``None``
+    iff the draft survives.
 
-    Order is load-bearing. A cap-hit draft has no ``</think>`` at all, so its
-    "think" text is the whole completion and both later checks would report
-    nonsense about it; the gate has to speak first.
+    The completion is assembled from *text* and tokenized here, rather than
+    carrying the sampled ids through, because the two-phase flow imposes the
+    boundary itself — and because this is the construction every downstream
+    consumer rebuilds (``whetstone.round0.build_sequence``, which re-tokenizes
+    think+answer under the *student*). Gating the same construction the scorer
+    will gate means a draft cannot pass here and fail there.
     """
-    masks = parse_segments(token_ids, prompt_len=0)
+    from whetstone.round0 import build_completion_text
+
+    text = build_completion_text(think, answer)
+    ids = tokenizer.encode(text, add_special_tokens=False)
+    masks = parse_segments(ids, prompt_len=0)
     out = {
         "g": masks.g,
         "gate_reason": masks.reason,
         "gate_warnings": list(masks.warnings),
         "think_tokens": masks.think_len,
         "answer_tokens": masks.answer_len,
-        "compact_think": "",
-        "answer": "",
-        "think_has_boxed": False,
+        "compact_think": think,
+        "answer": answer,
+        "raw_text": text,
+        "completion_token_ids": ids,
+        "n_tokens": len(ids),
+        "think_has_boxed": bool(_BOXED.search(think)),
         "verify_ok": False,
         "reject_reason": None,
     }
     if masks.g != 1:
         out["reject_reason"] = f"gate:{masks.reason}"
         return out
-
-    # g==1 guarantees exactly one of each boundary, so the string split is safe
-    # here (it is not, in general — that is why the gate runs on token ids).
-    think = text.split("<think>", 1)[1].split("</think>", 1)[0].strip()
-    answer = text.split("</think>", 1)[1].lstrip("\n")
-    out["compact_think"] = think
-    out["answer"] = answer
-    out["think_has_boxed"] = bool(_BOXED.search(think))
     if out["think_has_boxed"]:
-        # Card §1.5. At K=8 rejecting beats cleaning: a sibling draft without
-        # the trailer almost always exists, and cleaning would silently change
-        # what the corpus says the teacher produces.
+        # Card §1.5 survivor check. The phase-1 cleaner already truncates at a
+        # boxed flourish, so anything reaching here is a boxed result genuinely
+        # embedded mid-register — reject rather than edit it.
         out["reject_reason"] = "boxed_in_think"
         return out
-
     out["verify_ok"] = bool(verify_response(text, gold))
     if not out["verify_ok"]:
         out["reject_reason"] = "verify_fail"
     return out
+
+
+def write_reject(fh, rec: dict, k: int, meta: dict, args, reason: str) -> None:
+    """Append a phase-level rejection to the raw corpus.
+
+    Rejections are records, not silence: a cap-hit or empty-think draft is
+    evidence about the teacher and about the budget, and the raw corpus is where
+    the F2 denominators come from.
+    """
+    fh.write(json.dumps({
+        "_uid": rec["_uid"], "candidate_idx": k,
+        "level": rec["level"], "source": rec["source"],
+        "prompt": rec["prompt"], "ground_truth": rec["ground_truth"],
+        "conditioned_on": rec["conditioned_on"],
+        "trace_fallback_reason": rec.get("trace_fallback_reason"),
+        "g": 0, "gate_reason": reason, "gate_warnings": [],
+        "think_tokens": 0, "answer_tokens": 0,
+        "compact_think": "", "answer": "", "raw_text": "",
+        "completion_token_ids": [], "n_tokens": 0,
+        "think_has_boxed": False, "verify_ok": False,
+        "reject_reason": reason,
+        "draft_seed": draft_seed(rec["_uid"], k, args.seed),
+        **meta,
+    }, ensure_ascii=False) + "\n")
 
 
 def main() -> int:
@@ -211,7 +261,11 @@ def main() -> int:
                          "TEACHER's template, so it is the teacher's")
     ap.add_argument("--card", default="configs/register_card.md")
     ap.add_argument("--k", type=int, default=8)
-    ap.add_argument("--max_tokens", type=int, default=4096)
+    ap.add_argument("--max_think_tokens", type=int, default=2048)
+    ap.add_argument("--max_answer_tokens", type=int, default=1024)
+    ap.add_argument("--chunk", type=int, default=512,
+                    help="drafts per phase-1/phase-2 round trip. Only affects "
+                         "how often results land on disk; resume is per draft.")
     ap.add_argument("--temperature", type=float, default=0.8)
     ap.add_argument("--top_p", type=float, default=0.95)
     ap.add_argument("--seed", type=int, default=0)
@@ -225,7 +279,6 @@ def main() -> int:
                     help="0 = all. The subset is pre-shuffled, so the first N "
                          "is a representative slice — this is what Part 5's "
                          "500-problem calibration checkpoint uses.")
-    ap.add_argument("--checkpoint_every", type=int, default=64)
     args = ap.parse_args()
 
     from transformers import AutoTokenizer
@@ -258,8 +311,10 @@ def main() -> int:
         "prefill": args.prefill,
         "temperature": args.temperature,
         "top_p": args.top_p,
-        "max_tokens": args.max_tokens,
+        "max_think_tokens": args.max_think_tokens,
+        "max_answer_tokens": args.max_answer_tokens,
         "seed_base": args.seed,
+        "generation": "two_phase",
     }
 
     subset = [json.loads(l) for l in open(args.subset) if l.strip()]
@@ -284,87 +339,113 @@ def main() -> int:
         return 0
     print(f"[work] {len(work)} drafts to go")
 
-    bodies = [{
-        "model": args.model,
-        "prompt": build_prompt(tokenizer, system_prompt, rec, args.prefill),
-        "max_tokens": args.max_tokens,
-        "temperature": args.temperature,
-        "top_p": args.top_p,
-        "n": 1,
-        "stream": False,
-        "seed": draft_seed(rec["_uid"], k, args.seed),
-        "return_token_ids": True,
-    } for rec, k in work]
-
     out_f = open(args.output, "a", buffering=1)
     fail_f = open(f"{args.output}.failed.jsonl", "a", buffering=1)
     state = Counter()
     t0 = time.time()
+    prefill_body = args.prefill.split("\n", 1)[-1] if args.prefill else ""
 
-    def on_result(res) -> None:
-        rec, k = work[res.index]
-        state["n"] += 1
-        if not res.ok:
-            state["request_failed"] += 1
-            fail_f.write(json.dumps({"_uid": rec["_uid"], "candidate_idx": k,
-                                     "error": res.error}) + "\n")
-            return
-        if not res.token_ids:
-            # Without token ids the segment gate cannot run, and re-tokenizing
-            # the decoded text does not round-trip at the boundary (§12.1).
-            # Treat as a request failure so a resume retries it.
-            state["no_token_ids"] += 1
-            fail_f.write(json.dumps({"_uid": rec["_uid"], "candidate_idx": k,
-                                     "error": "server returned no token_ids — "
-                                              "is return_token_ids supported?"}) + "\n")
-            return
+    def fail(rec, k, msg) -> None:
+        state["request_failed"] += 1
+        fail_f.write(json.dumps({"_uid": rec["_uid"], "candidate_idx": k,
+                                 "error": msg}) + "\n")
 
-        # The prefill is part of the rollout: the model conditioned on those
-        # exact ids and continued from them, so prepending them reconstructs
-        # the true sequence. (Concatenating ids, never re-tokenizing the
-        # concatenated text — that would not round-trip at the boundary.)
-        full_text = args.prefill + res.text
-        full_ids = prefill_ids + list(res.token_ids)
+    for start in range(0, len(work), args.chunk):
+        batch = work[start:start + args.chunk]
 
-        v = triage(full_text, full_ids, rec["ground_truth"])
-        state[f"reject:{v['reject_reason']}" if v["reject_reason"] else "kept"] += 1
-        state["cap"] += int(res.finish_reason == "length")
+        # --- phase 1: the register, stopped at the boundary ---------------
+        p1_prompts = [build_prompt(tokenizer, system_prompt, rec, args.prefill)
+                      for rec, _ in batch]
+        p1: dict[int, object] = {}
+        run_completions(
+            args.server,
+            [{"model": args.model, "prompt": p, "max_tokens": args.max_think_tokens,
+              "temperature": args.temperature, "top_p": args.top_p, "n": 1,
+              "stream": False, "seed": draft_seed(rec["_uid"], k, args.seed),
+              "stop": ["</think>"]}
+             for p, (rec, k) in zip(p1_prompts, batch)],
+            on_result=lambda r: p1.__setitem__(r.index, r),
+            concurrency=args.concurrency)
 
-        draft = {
-            "_uid": rec["_uid"],
-            "candidate_idx": k,
-            "level": rec["level"],
-            "source": rec["source"],
-            "prompt": rec["prompt"],
-            "ground_truth": rec["ground_truth"],
-            "conditioned_on": rec["conditioned_on"],
-            "trace_fallback_reason": rec.get("trace_fallback_reason"),
-            "trace_candidate_idx": rec.get("trace_candidate_idx"),
-            "verbose_think_tokens": rec.get("verbose_think_tokens"),
-            "raw_text": full_text,
-            "completion_token_ids": full_ids,
-            "n_tokens": len(full_ids),
-            "finish_reason": res.finish_reason,
-            "draft_seed": draft_seed(rec["_uid"], k, args.seed),
-            **v,
-            **meta,
-        }
-        out_f.write(json.dumps(draft, ensure_ascii=False) + "\n")
-
-        if state["n"] % args.checkpoint_every == 0:
-            rate = state["n"] / max(1e-9, (time.time() - t0) / 60)
-            checkpoint(args.output, out_f, {
-                "done": state["n"], "of": len(work),
-                "drafts_per_min": round(rate, 1),
-                "eta_h": round((len(work) - state["n"]) / max(1e-9, rate) / 60, 2),
-                **{k: v for k, v in state.items() if k != "n"},
+        # --- phase 2: the solution, from the CLEANED register -------------
+        # Conditioning phase 2 on the cleaned think body rather than the raw
+        # phase-1 text costs a little prefix-cache reuse and buys the property
+        # that matters: the answer is the answer to the trace the corpus
+        # actually stores, not to a trailer that was trimmed out of it.
+        p2_idx, p2_bodies, thinks = [], [], {}
+        for i, (rec, k) in enumerate(batch):
+            res = p1.get(i)
+            if res is None or not res.ok:
+                fail(rec, k, f"phase1: {getattr(res, 'error', 'no result')}")
+                continue
+            if res.finish_reason == "length":
+                state["reject:cap_think"] += 1
+                write_reject(out_f, rec, k, meta, args, "cap_think")
+                continue
+            think, flags = clean_oneshot(prefill_body + res.text)
+            for fl in flags:
+                state[f"flag_{fl}"] += 1
+            if not think:
+                state["reject:empty_think"] += 1
+                write_reject(out_f, rec, k, meta, args, "empty_think")
+                continue
+            thinks[i] = (think, flags)
+            p2_idx.append(i)
+            p2_bodies.append({
+                "model": args.model,
+                "prompt": p1_prompts[i] + think[len(prefill_body):] + THINK_CLOSE,
+                "max_tokens": args.max_answer_tokens,
+                "temperature": args.temperature, "top_p": args.top_p,
+                "n": 1, "stream": False,
+                "seed": draft_seed(rec["_uid"], k, args.seed + 1),
             })
-            print(f"[{state['n']}/{len(work)}] {rate:.1f}/min  "
-                  f"kept {state['kept']}  "
-                  f"eta {(len(work)-state['n'])/max(1e-9,rate)/60:.1f} h", flush=True)
 
-    run_completions(args.server, bodies, on_result=on_result,
-                    concurrency=args.concurrency)
+        p2: dict[int, object] = {}
+        if p2_bodies:
+            run_completions(args.server, p2_bodies,
+                            on_result=lambda r: p2.__setitem__(r.index, r),
+                            concurrency=args.concurrency)
+
+        # --- assemble, gate, verify, append -------------------------------
+        for j, i in enumerate(p2_idx):
+            rec, k = batch[i]
+            res = p2.get(j)
+            if res is None or not res.ok:
+                fail(rec, k, f"phase2: {getattr(res, 'error', 'no result')}")
+                continue
+            think, flags = thinks[i]
+            if res.finish_reason == "length":
+                state["reject:cap_answer"] += 1
+                write_reject(out_f, rec, k, meta, args, "cap_answer")
+                continue
+            v = triage(tokenizer, think, res.text.strip(), rec["ground_truth"])
+            state["kept" if v["reject_reason"] is None
+                  else f"reject:{v['reject_reason']}"] += 1
+            out_f.write(json.dumps({
+                "_uid": rec["_uid"], "candidate_idx": k,
+                "level": rec["level"], "source": rec["source"],
+                "prompt": rec["prompt"], "ground_truth": rec["ground_truth"],
+                "conditioned_on": rec["conditioned_on"],
+                "trace_fallback_reason": rec.get("trace_fallback_reason"),
+                "trace_candidate_idx": rec.get("trace_candidate_idx"),
+                "verbose_think_tokens": rec.get("verbose_think_tokens"),
+                "clean_flags": flags,
+                "draft_seed": draft_seed(rec["_uid"], k, args.seed),
+                **v, **meta,
+            }, ensure_ascii=False) + "\n")
+
+        state["n"] += len(batch)
+        rate = state["n"] / max(1e-9, (time.time() - t0) / 60)
+        checkpoint(args.output, out_f, {
+            "done": state["n"], "of": len(work),
+            "drafts_per_min": round(rate, 1),
+            "eta_h": round((len(work) - state["n"]) / max(1e-9, rate) / 60, 2),
+            **{key: v for key, v in state.items() if key != "n"},
+        })
+        print(f"[{state['n']}/{len(work)}] {rate:.1f}/min  "
+              f"kept {state['kept']}  "
+              f"eta {(len(work)-state['n'])/max(1e-9,rate)/60:.1f} h", flush=True)
+
     out_f.close()
     fail_f.close()
 
