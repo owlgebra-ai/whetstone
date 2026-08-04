@@ -207,6 +207,12 @@ def main() -> int:
         clean = np.array([r["clean_p95"] for r in res])
         dirty = np.array([r["dirty_p95"] for r in res])
         tau_leap, auc, tpr, fpr = roc_pick_tau(clean, dirty)
+        # Band existence is really the threshold-free separation (AUC, and the
+        # paired scatter); tau_spike and tau_leap are pinned *from* it. The
+        # suggested tau_spike is where uncorrupted register text actually sits,
+        # so it is reported next to the packet's start value of 1.2 rather than
+        # replacing it — quoting only the self-derived one would be circular.
+        tau_spike_suggested = float(percentile(clean.tolist(), 95))
 
         a_pass = m["s1_p95_gap"] < args.tau_spike
         a_branch = m.get("s1_p95_gap_branch", float("nan")) < args.tau_spike
@@ -237,6 +243,9 @@ def main() -> int:
             "c_corrupted_probe": {
                 "n_pairs": len(res), "by_type": kinds,
                 "tau_leap": tau_leap, "auc": auc, "tpr": tpr, "fpr": fpr,
+                "tau_spike_suggested": tau_spike_suggested,
+                "separation_ratio": (tau_leap / tau_spike_suggested
+                                     if tau_spike_suggested > 0 else float("nan")),
                 "clean_p95_median": float(np.median(clean)),
                 "dirty_p95_median": float(np.median(dirty)),
                 "frac_corrupted_above_tau_leap": frac_dirty,
@@ -254,6 +263,8 @@ def main() -> int:
               f"branch={m.get('s1_p95_gap_branch'):.3f} (n={m.get('s1_n_branch')})")
         print(f"(b) verbose      : Δlogp={m['b_logprob_delta_mean']:+.4f} within ±{args.eps} -> "
               f"{'PASS' if b_pass else 'FAIL'}")
+        print(f"    band: clean-span p95 = {tau_spike_suggested:.3f} (τ_spike suggested by data), "
+              f"τ_leap = {tau_leap:.3f} → separation {tau_leap / max(tau_spike_suggested, 1e-9):.2f}×")
         print(f"(c) corrupted    : τ_leap={tau_leap:.3f} AUC={auc:.3f} "
               f"(TPR={tpr:.2f} FPR={fpr:.2f}) | corrupted p95 med={np.median(dirty):.3f} "
               f"vs clean {np.median(clean):.3f} | {frac_dirty:.0%} spike, "
