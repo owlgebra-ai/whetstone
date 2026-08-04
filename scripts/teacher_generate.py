@@ -282,6 +282,13 @@ def main() -> int:
     ap.add_argument("--temperature", type=float, default=0.8)
     ap.add_argument("--top_p", type=float, default=0.95)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--gen_round", type=int, default=1,
+                    help="Generation round, stamped on every draft. Bump it "
+                         "when re-generating problems under changed "
+                         "conditioning: selection keeps only the highest round "
+                         "present for a uid, so the raw corpus stays "
+                         "append-only and self-describing rather than needing "
+                         "a side file of superseded ids.")
     ap.add_argument("--prefill", default=PREFILL_DEFAULT,
                     help="assistant prefill opening the thinking block in "
                          "register. Pass '' to disable — but read the module "
@@ -328,6 +335,7 @@ def main() -> int:
         "max_answer_tokens": args.max_answer_tokens,
         "seed_base": args.seed,
         "generation": "two_phase",
+        "gen_round": args.gen_round,
     }
 
     subset = [json.loads(l) for l in open(args.subset) if l.strip()]
@@ -340,8 +348,15 @@ def main() -> int:
     dropped_b = repair_tail(args.output)
     if dropped_b:
         print(f"[resume] repaired torn tail: dropped {dropped_b} B")
-    seen = scan_seen(args.output, ("_uid", "candidate_idx"))
-    print(f"[resume] {len(seen)} drafts already on disk")
+    # Resume must be round-aware. A re-generation under changed conditioning
+    # reuses the same (uid, candidate_idx) keys, so a two-field resume key would
+    # see every promoted problem as "already done" and silently generate
+    # nothing — the failure would look exactly like a successful no-op run.
+    seen = {(u, k) for u, k, r in scan_seen(
+        args.output, ("_uid", "candidate_idx", "gen_round"))
+        if (r or 1) == args.gen_round}
+    print(f"[resume] {len(seen)} drafts already on disk for round "
+          f"{args.gen_round}")
 
     # uid-major so a problem's K drafts share one prompt prefix back to back —
     # vLLM's prefix cache then serves the card + problem for all but the first.

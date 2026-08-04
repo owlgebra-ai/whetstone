@@ -265,7 +265,7 @@ def main() -> int:
             s = json.loads(line)
         except json.JSONDecodeError:
             continue
-        scores[(s["_uid"], s["candidate_idx"])] = s
+        scores[(s["_uid"], s["candidate_idx"], s.get("gen_round", 1))] = s
 
     by_uid: dict[str, list[dict]] = defaultdict(list)
     rejects: dict[str, Counter] = defaultdict(Counter)
@@ -286,7 +286,7 @@ def main() -> int:
         if d.get("reject_reason") is not None:
             rejects[uid][d["reject_reason"]] += 1
             continue
-        s = scores.get((uid, d["candidate_idx"]))
+        s = scores.get((uid, d["candidate_idx"], d.get("gen_round", 1)))
         if s is None:
             rejects[uid]["unscored"] += 1
             continue
@@ -306,6 +306,25 @@ def main() -> int:
         d["_sig"] = signature(d, s)
         d["_think"] = s.get("scored_think_tokens") or d.get("think_tokens") or 0
         by_uid[uid].append(d)
+
+    # Keep only the highest generation round present for each problem. A
+    # re-generation under changed conditioning (e.g. a problem promoted from
+    # `gold` to `gold+trace` by a raised trace cap) appends round-2 drafts
+    # rather than mutating the raw corpus, so the old ones are still on disk and
+    # still auditable — they just must not compete. Without this the promoted
+    # problems would effectively run at K=16 while everything else runs at K=8,
+    # which biases selection in their favour on every criterion.
+    n_superseded = 0
+    for uid, cs in list(by_uid.items()):
+        rounds = {c.get("gen_round", 1) for c in cs}
+        if len(rounds) > 1:
+            top = max(rounds)
+            kept_cs = [c for c in cs if c.get("gen_round", 1) == top]
+            n_superseded += len(cs) - len(kept_cs)
+            by_uid[uid] = kept_cs
+    if n_superseded:
+        print(f"[rounds] {n_superseded} drafts superseded by a later "
+              f"generation round")
 
     print(f"[in] {n_drafts} drafts, {len(scores)} score records, "
           f"{len(by_uid)} problems with ≥1 survivor")

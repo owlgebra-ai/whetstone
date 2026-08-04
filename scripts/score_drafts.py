@@ -118,7 +118,7 @@ def read_new(path: str, seen: set) -> list[dict]:
                 continue          # torn tail; the writer will finish the line
             if r.get("reject_reason") is not None:
                 continue          # rejected drafts are never scored
-            if (r["_uid"], r["candidate_idx"]) in seen:
+            if (r["_uid"], r["candidate_idx"], r.get("gen_round", 1)) in seen:
                 continue
             out.append(r)
     return out
@@ -260,7 +260,10 @@ def main() -> int:
     dropped = repair_tail(args.output)
     if dropped:
         print(f"[resume] repaired torn tail: dropped {dropped} B")
-    seen = scan_seen(args.output, ("_uid", "candidate_idx"))
+    # Round-aware, for the same reason as the generator: re-generated drafts
+    # carry the same (uid, candidate_idx) and would otherwise read as scored.
+    seen = {(u, k, r or 1) for u, k, r in
+            scan_seen(args.output, ("_uid", "candidate_idx", "gen_round"))}
     print(f"[resume] {len(seen)} drafts already scored")
 
     out_f = open(args.output, "a", buffering=1)
@@ -286,7 +289,7 @@ def main() -> int:
             chunk = pending[i:i + args.batch]
             seqs, skipped = [], []
             for d in chunk:
-                key = (d["_uid"], d["candidate_idx"])
+                key = (d["_uid"], d["candidate_idx"], d.get("gen_round", 1))
                 try:
                     seq = build_sequence(
                         tokenizer, uid=d["_uid"], problem=d["prompt"],
@@ -311,6 +314,7 @@ def main() -> int:
                 state[f"skip:{reason.split(':')[0]}"] += 1
                 out_f.write(json.dumps({
                     "_uid": key[0], "candidate_idx": key[1],
+                    "gen_round": key[2],
                     "score_skip_reason": reason,
                     **annotate(d, verbose_by_uid.get(key[0], ""))}) + "\n")
                 seen.add(key)
@@ -323,7 +327,8 @@ def main() -> int:
             for key, (pl, err) in raw.items():
                 seq = by_key[key]
                 d = next(x for x in chunk
-                         if (x["_uid"], x["candidate_idx"]) == key)
+                         if (x["_uid"], x["candidate_idx"],
+                             x.get("gen_round", 1)) == key)
                 if err is not None:
                     state["score_error"] += 1
                     continue      # NOT marked seen: a later pass retries it
@@ -337,6 +342,7 @@ def main() -> int:
                 t_think = seq.masks.think_len
                 rec = {
                     "_uid": key[0], "candidate_idx": key[1],
+                    "gen_round": key[2],
                     "score_skip_reason": None,
                     "think_dt_mean": round(sum(gaps) / len(gaps), 6) if gaps else None,
                     "think_dt_p95": round(percentile(gaps, 95), 6) if gaps else None,
