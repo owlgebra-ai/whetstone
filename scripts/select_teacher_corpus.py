@@ -150,29 +150,41 @@ def select_one(cands: list[dict]) -> tuple[list[dict], dict]:
     winner["selection_reason"] = "winner:" + "+".join(reasons)
     kept = [winner]
 
-    for c in ordered[1:]:
+    # Runners-up in TWO passes, and the order is the point (measured: a single
+    # rank-order pass put `branch_kept` at 26.7% where two passes reach the
+    # packet's target). The winner rule ranks `verify_kept` above `branch_kept`,
+    # and verification is ~5x commoner than branch retention, so the winner is
+    # almost always a verify-keeper that dropped the branch. If runners-up are
+    # then filled in rank order, the branch-keeping draft — typically ranked
+    # 5th–8th, because branch-preserving traces are longer and score worse on
+    # G_spike × G_budget — never gets looked at before the slots are gone.
+    #
+    # Pass 1 therefore takes candidates that ADD a structural property the
+    # winner lacks; pass 2 fills what is left with plain diversity.
+    def missing(key):
+        return not any(k["_s"].get(key) for k in kept)
+
+    for pass_no in (1, 2):
+        for c in ordered[1:]:
+            if len(kept) >= MAX_KEEP:
+                break
+            if c in kept:
+                continue
+            adds = [n for n, key in (("branch", "compact_has_branch"),
+                                     ("verify", "compact_has_verify"))
+                    if c["_s"].get(key) and missing(key)]
+            if pass_no == 1 and not adds:
+                continue
+            ok, _ = is_diverse(c, kept)
+            if not ok:
+                continue
+            c["_adds"] = adds
+            c["selection_rank"] = len(kept)
+            c["selection_reason"] = ("runner_up:adds_" + "+".join(adds) if adds
+                                     else "runner_up:diverse")
+            kept.append(c)
         if len(kept) >= MAX_KEEP:
             break
-        ok, _ = is_diverse(c, kept)
-        if not ok:
-            continue
-        adds = [n for n, key in (("branch", "compact_has_branch"),
-                                 ("verify", "compact_has_verify"))
-                if c["_s"].get(key) and not any(k["_s"].get(key) for k in kept)]
-        c["_adds"] = adds
-        c["selection_rank"] = len(kept)
-        c["selection_reason"] = ("runner_up:adds_" + "+".join(adds) if adds
-                                 else "runner_up:diverse")
-        kept.append(c)
-
-    # Priority to property-adding runners-up: re-run the tail once now that we
-    # know which properties exist, so a diverse-but-plain draft never displaces
-    # a diverse draft carrying a property the winner lacks.
-    tail = sorted(kept[1:], key=lambda c: (-len(c.get("_adds") or []),
-                                           -quality(c["_s"])))
-    for i, c in enumerate(tail):
-        c["selection_rank"] = i + 1
-    kept = [winner] + tail
 
     stats = {"src_has_verify": src_verify, "src_has_branch": src_branch,
              "n_cands": len(cands)}
