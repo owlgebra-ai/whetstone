@@ -157,31 +157,58 @@ def is_diverse(cand: dict, kept: list[dict]) -> tuple[bool, str]:
     return True, ""
 
 
-def select_one(cands: list[dict]) -> tuple[list[dict], dict]:
-    """Winner + ≤2 diverse runners-up for one problem."""
-    # Source-level properties: identical across a problem's drafts (they share
-    # one verbose source), so read them off any candidate that has a source.
-    src = next((c for c in cands if not c["_s"].get("no_source", True)), None)
-    src_verify = bool(src and src["_s"].get("src_has_verify"))
-    src_branch = bool(src and src["_s"].get("src_has_branch"))
+def source_properties(cands: list[dict]) -> tuple[bool, bool]:
+    """``(src_has_verify, src_has_branch)`` for a problem's candidate list.
 
+    Source-level properties are identical across a problem's drafts (they share
+    one verbose source), so they are read off any candidate that has a source.
+    """
+    src = next((c for c in cands if not c["_s"].get("no_source", True)), None)
+    return (bool(src and src["_s"].get("src_has_verify")),
+            bool(src and src["_s"].get("src_has_branch")))
+
+
+def rank_candidates(cands: list[dict]) -> list[dict]:
+    """A problem's candidates, best first, under the selection ordering.
+
+    Exported so the golden filter walks candidates in **exactly** the order
+    selection would pick them, rather than re-deriving an ordering. Two
+    rankings that drift apart is the same class of bug as a record scored under
+    one construction and thresholded under another.
+    """
+    src_verify, src_branch = source_properties(cands)
+    return sorted(cands, key=_rank_key(src_verify, src_branch))
+
+
+def _rank_key(src_verify: bool, src_branch: bool):
+    """The single candidate ordering, used by selection AND the golden filter.
+
+    Register adherence ranks FIRST: a prose trace with a ``goal:`` header is not
+    a compact-register example at all, and installing the register is the whole
+    deliverable, so it should not win on a structural tie-break or on G_spike.
+    It is affordable at the top precisely because it is the one property
+    best-of-K can nearly always supply (98.9% of problems have an in-register
+    candidate).
+
+    Structural terms fire only when the source warrants them. ``None`` (no
+    source) sorts with ``False``: it is not a claim, so it cannot win the
+    tie-break — but it does not lose to a *failed* keep either, which is why the
+    value is the same 0 rather than -1.
+    """
     def rank(c):
         s = c["_s"]
-        # Register adherence ranks FIRST. A prose trace with a `goal:` header is
-        # not a compact-register example at all, and installing the register is
-        # the entire deliverable — so it should not win on a structural
-        # tie-break or on G_spike. It is affordable at the top precisely because
-        # it is the one property best-of-K can nearly always supply (98.9% of
-        # problems have an in-register candidate).
         reg = 1 if in_register(c.get("compact_think", "")) else 0
-        # None (no source) sorts with False: it is not a claim, so it cannot
-        # win the tie-break — but it does not lose to a *failed* keep either,
-        # which is why the value is the same 0 rather than -1.
         v = 1 if (src_verify and s.get("verify_kept") is True) else 0
         b = 1 if (src_branch and s.get("branch_kept") is True) else 0
         return (-reg, -v, -b, -quality(s), c["candidate_idx"])
+    return rank
 
-    ordered = sorted(cands, key=rank)
+
+def select_one(cands: list[dict]) -> tuple[list[dict], dict]:
+    """Winner + ≤2 diverse runners-up for one problem."""
+    src_verify, src_branch = source_properties(cands)
+
+    ordered = sorted(cands, key=_rank_key(src_verify, src_branch))
     winner = ordered[0]
     ws = winner["_s"]
     reasons = []

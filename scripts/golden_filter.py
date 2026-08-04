@@ -1,0 +1,351 @@
+"""Judge-filtered golden corpus: one certified trace per problem (user request,
+2026-08-04).
+
+**This makes the external judge a filter on training data, which the rest of
+the pipeline forbids.** `faithfulness_audit.py`'s own docstring says: *"if a
+judge verdict ever becomes a filter on training data, an external model is
+shaping the corpus and the invariant is broken"*, and packet P5 §8 says judge
+output goes to the dashboard, *"never into any corpus record"*. That rule is
+deliberately overridden here, by user decision, and the deviation is attested
+the way activity 005 attested the GLM bootstrap corpus:
+
+* **Why it is defensible.** The central-model principle (v1 §3) protects the
+  *compressor* from being an external teacher — and activity 006 already
+  replaced the compressor with a frozen 32B. GLM choosing among 32B traces is a
+  strictly smaller deviation than GLM writing them. Against that, activity 008
+  measured 13% of selected traces judged **wrong**: an answer that verifies,
+  in-register, low-spike, and a fabricated derivation underneath. Every
+  automatic check in the pipeline passes those, and Stage B would train on them.
+* **What it costs.** The corpus inherits one judge's notion of faithfulness as
+  an unmeasured selection pressure, and any comparison against SCA /
+  DeepCompress now carries a confound those arms do not have.
+* **The mitigation, and it is not optional.** The unfiltered selected corpus is
+  left completely intact. Stage B can be run on either, and the difference
+  between them is itself a measurement. Never delete the unfiltered corpus.
+
+**Why one draft at a time, best first.** The goal is maximum *unique problems*,
+not maximum traces. Judging all 8 drafts of every problem would cost 8× the API
+for no extra coverage. So each problem's candidates are walked in the **exact
+selection ranking** (imported from `select_teacher_corpus`, never re-derived —
+two orderings that drift apart is the same bug class as scoring under one
+construction and thresholding under another) and judged one at a time until one
+comes back faithful. A problem resolves on its first success; a problem whose
+candidates are exhausted is recorded, not silently dropped.
+
+**Two rubrics, because 38.5% of problems have no verbose source.** The standard
+rubric compares compact against verbose and cannot run without one. Excluding
+those problems would cap the golden set at ~2,460 of 4,000 — directly against
+the goal of maximising unique problems. So source-less problems are judged by a
+**self-contained** rubric instead: is every step justified, does the derivation
+actually reach the answer, is anything asserted without support. Every record is
+stamped with `rubric` so the two populations are never silently pooled, and they
+are written to separate files. This is also the only instrument pointed at
+activity 008 finding 13 — that the teacher confabulates when given the answer
+without the reasoning (10.5% faithful / 73.7% wrong in the hard band).
+
+Usage::
+
+    export FAITHFULNESS_BASE_URL=... FAITHFULNESS_AUTH_TOKEN=...
+    python scripts/golden_filter.py --concurrency 12
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+import threading
+import time
+from collections import Counter, defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from faithfulness_audit import RUBRIC, SYSTEM, _parse                # noqa: E402
+from select_teacher_corpus import rank_candidates                    # noqa: E402
+from whetstone.runio import repair_tail                              # noqa: E402
+
+#: Rubric for problems with no verbose source. Deliberately *not* the
+#: faithfulness rubric with an empty ORIGINAL: measured on this corpus, the
+#: judge returns 94.7% "faithful" when handed a blank original, because there is
+#: nothing to have dropped. It grades soundness instead, and the key question is
+#: the one finding 13 raises — the teacher was given the answer, so "reaches the
+#: right answer" is worthless evidence and only the *derivation* counts.
+SELF_CONTAINED_SYSTEM = (
+    "You are a strict grader auditing whether a compact mathematical derivation "
+    "actually establishes its result. The author was GIVEN the correct answer in "
+    "advance, so arriving at the right answer proves nothing — judge only whether "
+    "each step is justified and whether the steps together derive the result. "
+    "Reply with ONLY a JSON object. No prose, no code fence."
+)
+
+SELF_CONTAINED_RUBRIC = """PROBLEM:
+{problem}
+
+KNOWN-CORRECT ANSWER (the author was shown this in advance):
+{gold}
+
+COMPACT DERIVATION (what must be judged):
+{compact}
+
+The derivation is written in a compact notation; terse notation is fine and is
+NOT a defect. Judge the reasoning, not the style.
+
+Return JSON with exactly these keys:
+  "unsupported_step"  : bool  — some step is asserted without justification and
+                                does not follow from what precedes it
+  "gap"               : bool  — the chain has a hole: a step the reader cannot
+                                reconstruct from what is written
+  "asserts_answer"    : bool  — the answer is essentially stated rather than
+                                derived, or the derivation works backwards from it
+  "invented_content"  : bool  — invokes a fact, theorem or value that is wrong or
+                                not applicable here
+  "verdict"           : "faithful" | "lossy" | "wrong"
+  "note"              : string, <= 30 words, citing the specific step if not faithful
+
+"faithful" = every step is justified and the chain establishes the result.
+"lossy"    = the chain is followable but has a thin or under-justified step.
+"wrong"    = a step is unsupported or incorrect, or the answer is asserted
+             rather than derived."""
+
+
+def load_candidates(drafts_path: str, scores_path: str) -> dict:
+    """``{uid: [candidate, ...]}`` — kept, scored drafts, highest round only."""
+    scores = {}
+    with open(scores_path) as fh:
+        for line in fh:
+            try:
+                s = json.loads(line)
+            except Exception:                                      # noqa: BLE001
+                continue
+            scores[(s["_uid"], s["candidate_idx"], s.get("gen_round", 1))] = s
+
+    by_uid: dict = defaultdict(list)
+    with open(drafts_path) as fh:
+        for line in fh:
+            try:
+                d = json.loads(line)
+            except Exception:                                      # noqa: BLE001
+                continue
+            if d.get("reject_reason") is not None:
+                continue
+            s = scores.get((d["_uid"], d["candidate_idx"], d.get("gen_round", 1)))
+            if s is None or s.get("score_skip_reason"):
+                continue
+            d["_s"] = s
+            by_uid[d["_uid"]].append(d)
+
+    for uid, cs in list(by_uid.items()):
+        rounds = {c.get("gen_round", 1) for c in cs}
+        if len(rounds) > 1:
+            top = max(rounds)
+            by_uid[uid] = [c for c in cs if c.get("gen_round", 1) == top]
+    return by_uid
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--drafts", default="/data/whetstone/corpora/stagea_raw/drafts.jsonl")
+    ap.add_argument("--scores", default="/data/whetstone/corpora/stagea_raw/scores.jsonl")
+    ap.add_argument("--subset", default="/data/whetstone/corpora/stagea/subset_stagea.jsonl")
+    ap.add_argument("--outdir", default="/data/whetstone/corpora/stagea_golden")
+    ap.add_argument("--judgments",
+                    default="/data/whetstone/runs/stagea/golden_judgments.jsonl",
+                    help="append-only log of every judgment; the resume key")
+    ap.add_argument("--model", default="glm-5.2")
+    ap.add_argument("--base_url", default=os.environ.get("FAITHFULNESS_BASE_URL"))
+    ap.add_argument("--concurrency", type=int, default=12)
+    ap.add_argument("--max_attempts", type=int, default=8,
+                    help="candidates to try per problem before giving up")
+    ap.add_argument("--max_tokens", type=int, default=1024)
+    ap.add_argument("--max_verbose_chars", type=int, default=40000)
+    ap.add_argument("--no_source_rubric", action="store_true", default=True,
+                    help="judge source-less problems with the self-contained "
+                         "rubric (default on). --no_source_rubric_off to skip "
+                         "them entirely and keep the strict-faithfulness set.")
+    ap.add_argument("--no_source_rubric_off", dest="no_source_rubric",
+                    action="store_false")
+    ap.add_argument("--limit", type=int, default=0, help="0 = all problems")
+    args = ap.parse_args()
+
+    import anthropic
+    token = os.environ.get("FAITHFULNESS_AUTH_TOKEN")
+    if not token or not args.base_url:
+        raise SystemExit("[golden] set FAITHFULNESS_BASE_URL and "
+                         "FAITHFULNESS_AUTH_TOKEN")
+    client = anthropic.Anthropic(base_url=args.base_url, auth_token=token,
+                                 max_retries=4)
+
+    sub = {}
+    with open(args.subset) as fh:
+        for line in fh:
+            r = json.loads(line)
+            sub[r["_uid"]] = r
+
+    by_uid = load_candidates(args.drafts, args.scores)
+    print(f"[in] {len(by_uid)} problems with at least one kept+scored draft")
+
+    os.makedirs(args.outdir, exist_ok=True)
+    repair_tail(args.judgments)
+    judged: dict = {}
+    resolved: set = set()
+    if os.path.exists(args.judgments):
+        with open(args.judgments) as fh:
+            for line in fh:
+                try:
+                    j = json.loads(line)
+                except Exception:                                  # noqa: BLE001
+                    continue
+                judged[(j["_uid"], j["candidate_idx"], j.get("gen_round", 1))] = j
+                if j.get("verdict") == "faithful":
+                    resolved.add(j["_uid"])
+    print(f"[resume] {len(judged)} judgments on disk, {len(resolved)} problems "
+          f"already resolved")
+
+    todo = [u for u in by_uid if u not in resolved]
+    if args.limit:
+        todo = todo[:args.limit]
+    print(f"[work] {len(todo)} problems to resolve")
+
+    jf = open(args.judgments, "a", buffering=1)
+    lock = threading.Lock()
+    state = Counter()
+    t0 = time.time()
+
+    def judge_one(cand: dict, src: dict) -> dict:
+        verbose = (sub.get(cand["_uid"], {}).get("verbose_think") or "").strip()
+        if verbose:
+            v = verbose[:args.max_verbose_chars]
+            prompt = RUBRIC.format(problem=cand.get("prompt", ""), verbose=v,
+                                   compact=cand["compact_think"])
+            system, rubric = SYSTEM, "faithfulness"
+        else:
+            prompt = SELF_CONTAINED_RUBRIC.format(
+                problem=cand.get("prompt", ""),
+                gold=cand.get("ground_truth", ""),
+                compact=cand["compact_think"])
+            system, rubric = SELF_CONTAINED_SYSTEM, "self_contained"
+        msg = client.messages.create(
+            model=args.model, max_tokens=args.max_tokens, system=system,
+            messages=[{"role": "user", "content": prompt}])
+        text = "".join(b.text for b in msg.content if b.type == "text")
+        parsed = _parse(text)
+        rec = {"_uid": cand["_uid"], "candidate_idx": cand["candidate_idx"],
+               "gen_round": cand.get("gen_round", 1),
+               "level": cand.get("level"), "rubric": rubric,
+               "conditioned_on": cand.get("conditioned_on"),
+               "parsed": bool(parsed),
+               "judge_model": args.model,
+               "input_tokens": msg.usage.input_tokens,
+               "output_tokens": msg.usage.output_tokens}
+        if parsed:
+            rec["verdict"] = parsed.get("verdict")
+            rec["note"] = parsed.get("note")
+            for k, v in parsed.items():
+                if isinstance(v, bool):
+                    rec[k] = v
+        else:
+            rec["verdict_raw"] = text[:400]
+        return rec
+
+    def resolve_problem(uid: str) -> tuple[str, dict | None, int]:
+        """Walk this problem's candidates best-first until one is faithful."""
+        cands = rank_candidates(by_uid[uid])[:args.max_attempts]
+        tried = 0
+        for c in cands:
+            key = (uid, c["candidate_idx"], c.get("gen_round", 1))
+            prev = judged.get(key)
+            if prev is None:
+                try:
+                    prev = judge_one(c, sub.get(uid, {}))
+                except Exception as exc:                           # noqa: BLE001
+                    with lock:
+                        state["api_error"] += 1
+                    return uid, None, tried
+                with lock:
+                    jf.write(json.dumps(prev, ensure_ascii=False) + "\n")
+                    state["judgments"] += 1
+                tried += 1
+            if prev.get("verdict") == "faithful":
+                return uid, {**c, "_judgment": prev}, tried
+        return uid, None, tried
+
+    golden, unresolved = [], []
+    with ThreadPoolExecutor(max_workers=args.concurrency) as ex:
+        futs = {ex.submit(resolve_problem, u): u for u in todo}
+        done = 0
+        for fut in as_completed(futs):
+            uid, winner, tried = fut.result()
+            done += 1
+            if winner is not None:
+                golden.append(winner)
+                state["resolved"] += 1
+                state[f"tries_{min(tried, 4)}"] += 1
+            else:
+                unresolved.append(uid)
+                state["unresolved"] += 1
+            if done % 100 == 0:
+                el = (time.time() - t0) / 60
+                print(f"[{done}/{len(todo)}] resolved {state['resolved']}  "
+                      f"unresolved {state['unresolved']}  "
+                      f"{state['judgments']} judgments  "
+                      f"{state['judgments']/max(1e-9, el):.0f}/min", flush=True)
+    jf.close()
+
+    # Re-attach problems that were already resolved on a previous run.
+    for uid in resolved:
+        if uid in by_uid and uid not in {g["_uid"] for g in golden}:
+            for c in rank_candidates(by_uid[uid]):
+                key = (uid, c["candidate_idx"], c.get("gen_round", 1))
+                j = judged.get(key)
+                if j and j.get("verdict") == "faithful":
+                    golden.append({**c, "_judgment": j})
+                    break
+
+    by_rubric = Counter(g["_judgment"]["rubric"] for g in golden)
+    out_paths = {}
+    for rubric in ("faithfulness", "self_contained"):
+        rows = [g for g in golden if g["_judgment"]["rubric"] == rubric]
+        path = os.path.join(args.outdir, f"golden_{rubric}.jsonl")
+        with open(path, "w") as fh:
+            for g in rows:
+                rec = {k: v for k, v in g.items()
+                       if k not in ("_s", "_judgment")}
+                rec.pop("completion_token_ids", None)
+                rec.update({k: v for k, v in g["_s"].items()
+                            if k not in ("_uid", "candidate_idx")})
+                rec["judge_verdict"] = g["_judgment"].get("verdict")
+                rec["judge_rubric"] = rubric
+                rec["judge_note"] = g["_judgment"].get("note")
+                rec["judge_model"] = g["_judgment"].get("judge_model")
+                rec["verbose_think"] = sub.get(g["_uid"], {}).get("verbose_think", "")
+                fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        out_paths[rubric] = path
+
+    with open(os.path.join(args.outdir, "unresolved_uids.json"), "w") as fh:
+        json.dump(sorted(unresolved), fh, indent=1)
+
+    lv = Counter(g.get("level") for g in golden)
+    lv_un = Counter(sub.get(u, {}).get("level") for u in unresolved)
+    mins = (time.time() - t0) / 60
+    print(f"\n[done] {len(golden)} golden problems, {len(unresolved)} unresolved, "
+          f"{state['judgments']} judgments in {mins:.1f} min")
+    print(f"  by rubric: {dict(by_rubric)}")
+    print(f"  {'lvl':>3} {'golden':>7} {'unresolved':>11} {'yield':>7}")
+    for l in sorted(set(lv) | set(lv_un), key=lambda x: (x is None, x)):
+        tot = lv[l] + lv_un[l]
+        print(f"  {str(l):>3} {lv[l]:>7} {lv_un[l]:>11} "
+              f"{100*lv[l]/max(1,tot):>6.1f}%")
+    for path in out_paths.values():
+        print(f"[out] {path}")
+    print(f"[out] {os.path.join(args.outdir, 'unresolved_uids.json')}")
+    print("\n  NOTE: the unfiltered selected corpus is untouched and must be "
+          "kept — it is the control arm for whatever this filtering does.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
