@@ -136,7 +136,11 @@ def main() -> int:
     ap.add_argument("--scratch", default="/data/whetstone/runs/stagea/_audit_round.jsonl")
     ap.add_argument("--every", type=int, default=50,
                     help="problems per audit round")
-    ap.add_argument("--n", type=int, default=10, help="judgments per round")
+    ap.add_argument("--n", type=int, default=10,
+                    help="judgments per --every problems (a cumulative rate)")
+    ap.add_argument("--max_per_cycle", type=int, default=40,
+                    help="ceiling on judgments in one invocation, so a long "
+                         "gap cannot turn into an unbounded API burst")
     ap.add_argument("--model", default="glm-5.2")
     ap.add_argument("--concurrency", type=int, default=5)
     ap.add_argument("--seed", type=int, default=0)
@@ -169,7 +173,22 @@ def main() -> int:
             continue
 
         done = judged_uids(args.output)
-        batch = sample_round(selected, done, args.n, rng)
+        # "10 judgments per 50 problems" is a CUMULATIVE rate, not a fixed batch
+        # per invocation. A fixed batch silently under-audits whenever the poll
+        # interval is slower than generation: at 48 drafts/min the corpus grows
+        # ~90 problems per 15-minute cycle, which the packet's cadence says is
+        # 18 judgments, so a flat 10 runs at 55% of the mandated rate and lands
+        # near 570 of the 800 the packet asks for. Judge up to the shortfall
+        # instead, capped so one cycle cannot become an unbounded API burst.
+        target = mark * args.n
+        want = max(0, min(target - len(done), args.max_per_cycle))
+        if want == 0:
+            last_mark = mark
+            if not args.follow:
+                break
+            time.sleep(args.poll_s)
+            continue
+        batch = sample_round(selected, done, want, rng)
         if not batch:
             last_mark = mark
             if not args.follow:
@@ -187,7 +206,8 @@ def main() -> int:
                     "compact_think": r.get("compact_think", ""),
                 }, ensure_ascii=False) + "\n")
 
-        print(f"[round {mark}] {n_problems} problems selected, judging "
+        print(f"[round {mark}] {n_problems} problems selected, "
+              f"{len(done)}/{target} judged so far, judging "
               f"{len(batch)} (levels "
               f"{sorted(Counter(r.get('level') for r in batch).items(), key=str)})",
               flush=True)
