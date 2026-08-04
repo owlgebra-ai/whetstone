@@ -55,6 +55,9 @@ from whetstone.round0 import MARKER_CLASSES, percentile
 MAX_KEEP = 3
 JACCARD_MAX = 0.6
 LEN_DELTA = 0.30
+#: In-memory scratch attached to a candidate during selection. Enumerated
+#: explicitly rather than matched by underscore prefix — see the emit site.
+SCRATCH_KEYS = frozenset({"_s", "_ng", "_sig", "_think", "_adds"})
 ALL_MARKERS = tuple(m for cls in MARKER_CLASSES.values() for m in cls)
 
 
@@ -277,13 +280,24 @@ def main() -> int:
                 ans_lens.append(s.get("scored_answer_tokens")
                                 or c.get("answer_tokens") or 0)
                 dens.append(marker_density(c.get("compact_think", "")))
-                rec = {k: v for k, v in c.items() if not k.startswith("_")}
+                # Drop only this script's own scratch keys. A blanket
+                # "starts with _" rule also eats `_uid`, which is the join key
+                # for Stage B, the audit and every later analysis — and it does
+                # it silently, since a record missing its id is still valid
+                # JSON. poolutil.write_jsonl whitelists `_uid` for the same
+                # reason.
+                rec = {k: v for k, v in c.items() if k not in SCRATCH_KEYS}
                 rec.pop("completion_token_ids", None)   # 32k of ids per draft;
                                                         # Stage B re-tokenizes
                                                         # under the student
                 rec.update({k: v for k, v in s.items()
                             if k not in ("_uid", "candidate_idx")})
                 rec["n_kept"] = len(kept)
+                if "_uid" not in rec:
+                    raise SystemExit(
+                        "[select] emitted a record with no _uid — the join key "
+                        "for Stage B and the audit. Refusing to write a corpus "
+                        "that cannot be joined back to its problems.")
                 # Stage B and the audit both need the source next to the rewrite.
                 srec = src_by_uid.get(uid, {})
                 rec["verbose_think"] = srec.get("verbose_think", "")
