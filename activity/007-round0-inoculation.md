@@ -433,9 +433,11 @@ p95 = 3.609, branch p95 = 8.819 (n = 68 heldout tokens). The branch vocabulary
 is the least calibrated class, exactly as activity 005 finding 7 predicted and
 as the packet's §7 metric 1 warned it would be.
 
-**Selected checkpoint: `step0020` → `/data/whetstone/ckpt/scorer_v1`.** Not the
-best on any single axis, and chosen on design §2's own criterion — *the smallest
-dose that creates recognition without infection*:
+**Selected checkpoint: `step0020` → `/data/whetstone/ckpt/scorer_v1`.**
+**RATIFIED by the user, 2026-08-04**, after the trade-off below was put to them
+explicitly with step0080 named as the defensible alternative. Not the best on
+any single axis, and chosen on design §2's own criterion — *the smallest dose
+that creates recognition without infection*:
 
 | | step0020 | step0080 |
 |---|---|---|
@@ -451,10 +453,14 @@ removed); step0030 matches step 20's hum but has the *worst* AUC of any
 checkpoint (0.799) and 25× the boundary damage — so the band is genuinely
 narrow, and it is centred on step 20.
 
-**Non-winner checkpoints were NOT deleted** (52 GB on a 4 TB volume). The packet
-asks for deletion on PASS, but the verdict is qualified and checkpoint selection
-leans on a criterion the packet did not specify (finding 4); keeping them makes
-that decision reversible. Delete them once P5 has confirmed the choice.
+**Non-winner checkpoints were NOT deleted** (50 GB on a 4 TB volume). The packet
+asks for deletion on PASS. The *selection* is now ratified (above), so the
+original reason for holding them — that step 20 rested on a criterion the packet
+did not specify (finding 4) — is discharged. They are kept anyway on the weaker
+ground that disk is free and P5 may want to re-measure against a neighbour when
+it tunes λ/β; **deleting them is a safe cleanup at any point.** The two that
+matter if pruning: keep `step0080` (the alternative on the headline axes) and
+`step0000` (π_0, the Risk-1 baseline that every AUC comparison is against).
 
 ### 6. Pinned values
 

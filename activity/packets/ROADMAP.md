@@ -104,12 +104,13 @@ Suite roles — three tiers with different touch frequencies, so headline number
 - **Pinned: τ_spike = 2.25, τ_leap = 3.175, κ_max = 0.3174, ε = 0.2, γ_e = 1.0,
   entropy floor x = 10% (cannot fire — see below).** S2's noise floor is
   **0.00094** (π_0 scored against its own cache), and κ_max is in those units.
-- **`scorer_v1` = Round-0 step 20**, frozen at `/data/whetstone/ckpt/scorer_v1`,
+- **`scorer_v1` = Round-0 step 20 — user-ratified 2026-08-04**, frozen at `/data/whetstone/ckpt/scorer_v1`,
   **serving on `spark:8100` as `whetstone-scorer`**; d_t contract re-verified
   over HTTP (4,932/4,932 positions, all 4,188 rank-1 positions exactly 0).
   Chosen on design §2's "smallest dose": step 80 removes 3% more tax for 2.3× the
   KL drift and 40× the boundary damage. Non-winner checkpoints are **kept** under
-  `/data/whetstone/ckpt/round0/` until P5 confirms the choice.
+  `/data/whetstone/ckpt/round0/` (50 GB, free to delete); if pruning, keep
+  `step0080` and `step0000` — π_0 is the baseline every AUC comparison is against.
 - **G_spike does NOT select against branch retention** (r_pb = −0.021, p = 0.47
   at β=5; −0.023, p = 0.44 at β=10; n = 1,200 32B traces). Activity 006's
   decision stands and **P5 proceeds with the unchanged product reward.**
