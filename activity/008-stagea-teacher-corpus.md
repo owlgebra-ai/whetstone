@@ -367,7 +367,80 @@ bound on the masked fraction, and P6 must re-measure under the original
 checkpoint before pinning γ** — one cheap pass over the selected corpus. Quoting
 this table as Stage B's γ calibration would be a genuine error.
 
-### 7. Throughput and the queue-depth risk
+### 7. Structural retention does **not** behave like independent draws across K
+
+Measured over the 110 problems whose all-8 drafts survived (preview selection on
+the first 190 problems). If each draft independently kept a branch at the
+observed per-draft rate of 0.160, the count per problem would be
+Binomial(8, 0.160). It is nothing like it:
+
+| k of 8 keeping a branch | observed | Binomial(8, 0.16) |
+|---|---|---|
+| 0 | **64.5%** | 24.7% |
+| 1 | 10.0% | 37.8% |
+| 2 | 2.7% | 25.2% |
+| 3 | 6.4% | 9.6% |
+| 4 | 6.4% | 2.3% |
+| 5–7 | 4.5% | 0.4% |
+| 8 | **5.5%** | 0.0% |
+| **P(≥1)** | **35.5%** | **75.3%** |
+
+`verify_kept` is clustered the same way (k=8 at 50.0% observed vs 19.0%
+independent). The distribution is U-shaped: a problem's compact form either
+carries the property in most drafts or in none.
+
+**This retires activity 006's open-item-2 arithmetic.** That note reasoned
+"13.9% per-sample → P(≥1 branch-keeping candidate) ≈ 70% at K=8, ~91% at K=16",
+and used it to argue selection would amplify branch retention. Measured, P(≥1)
+is **35.5%, not 75.3%** — and because the correlation is at the *problem* level,
+**raising K buys almost nothing.** K=16 would not approach 91%.
+
+The mechanism is most likely the source detector rather than the teacher:
+`structural_gate.py`'s own docstring records that `VERBOSE_BRANCH` fires on
+99.5% of verbose traces ("this model says 'wait'/'actually' constantly, even on
+trivial arithmetic"), and it fires on 122 of ~128 problems here. So a large part
+of the k=0 mass is problems with no real case split to keep — the compact trace
+cannot preserve a branch the source never had. That is why the check remains a
+corpus-level diagnostic and why `--require_branch` is off by default.
+
+**Consequence for the design:** if more branch coverage is wanted, the lever is
+the register card or the conditioning, **not** K and not the selection rule. And
+`branch_kept`'s denominator should be tightened before it is ever used as a
+gate.
+
+### 8. Selection captures 100% of the structure that exists
+
+The packet's F2b targets are per **problem** ("verify ≥ 85%, branch ≥ 30% on
+source-branching problems"), which is 3× different from the per-trace rate once
+a problem has 3 keeps. Preview over 190 problems:
+
+| property | eligible problems | ≥1 candidate has it | selection captured it | capture efficiency |
+|---|---|---|---|---|
+| verify | 119 | 98.3% | **98.3%** | **100%** |
+| branch | 122 | 37.7% | **37.7%** | **100%** |
+
+Both targets are met, and the diagnostic that matters is the last column:
+**capture efficiency is 100%** — of every problem where some candidate kept the
+property, selection kept it. The packet's stated worry ("if selection isn't
+finding them, the rule is broken") is answered directly: the rule finds all of
+them, and `available` is a fact about the teacher.
+
+Per-trace, `verify_kept` goes raw 80.6% → selected 95.2% and `branch_kept` raw
+17.1% → 27.5%. R_acc: all drafts 95.1% → **selected 100%**, so selection is not
+trading correctness for style (F2a's question) — it improves it, because
+`verify_ok` is a survivor condition.
+
+Getting here required one fix. A single rank-ordered runner-up pass reached only
+26.7% per-trace branch retention, because the winner rule ranks `verify_kept`
+above `branch_kept`, verification is ~5× commoner, and so the winner is almost
+always a verify-keeper that dropped the branch — after which the branch-keeping
+draft (typically ranked 5th–8th, since branch-preserving traces are longer and
+score worse on G_spike × G_budget) never gets looked at before the slots fill.
+Runners-up now run in two passes: property-adding candidates first, plain
+diversity second, which is what the packet's "priority to runners-up adding a
+structural property the winner lacks" actually asks for.
+
+### 9. Throughput and the queue-depth risk
 
 At the real chunk size (512, against the smoke's 64) throughput is **~54
 drafts/min**, not the 23.6 the smoke suggested — the K=8 group shares one prompt
@@ -385,7 +458,7 @@ of completed phase-1 generation (~10 min), because those results live in memory
 until phase 2 finishes. Acceptable here; worth knowing before choosing a larger
 chunk.
 
-### 8. Method note — a `&&` chain behind `&` does not do what it looks like
+### 10. Method note — a `&&` chain behind `&` does not do what it looks like
 
 The scorer ran 996 drafts on **8-commit-old code** after a one-liner of the shape
 `ssh box 'cd repo && git pull && rm out && nohup worker &'`. The `&` backgrounds
