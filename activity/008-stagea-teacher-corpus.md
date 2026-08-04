@@ -568,6 +568,96 @@ raw corpus was untouched, which is exactly what the raw/selected split is for.
 
 ---
 
+---
+
+## Part 5 — calibration checkpoint (go/no-go) — 2026-08-04 10:05
+
+Measured on the first 2,560 drafts of the calibration slice (320 problems; the
+subset is pre-shuffled, so this is a representative slice) plus 129 GLM
+judgments. **Verdict: GO.** Thresholds pinned below, then the run continues.
+
+### What was measured
+
+| check | packet expectation | measured | verdict |
+|---|---|---|---|
+| per-level R_acc (over gate-passing drafts) | ≥ ~90% | **94.9–100%**, min at level 6 | **PASS** |
+| selected `verify_kept`, per problem | ≥ 85% | **98.8%** | **PASS** |
+| selected `branch_kept`, per source-branching problem | ≥ 30% | **39.6%** | **PASS** |
+| selection capture efficiency | (implied 100%) | **100%** on both | **PASS** |
+| think length | well under 600 | median **182**, IQR [127, 341] | **PASS** |
+| R_acc, selected vs all drafts | within 3 pts | 96.0% → **100%** | **PASS** |
+| throughput | ~24 h for 32k drafts | **~47/min ⇒ ~11 h** | **PASS** |
+| queue depth | monitor, throttle if needed | scorer 22× faster; never backed up | **N/A** |
+
+### GLM audit calibration — 129 judgments, of which **91 valid**
+
+The 38 invalid ones are the finding below. Over the 91 source-bearing
+judgments:
+
+| band | n | faithful | lossy | wrong |
+|---|---|---|---|---|
+| level 1 (gsm8k) | 32 | 96.9% | 3.1% | 0.0% |
+| levels 2–5 | 17 | 94.1% | 5.9% | 0.0% |
+| levels 6–7 | 28 | 57.1% | 28.6% | 14.3% |
+| levels 8–9 | 14 | 57.1% | 14.3% | **28.6%** |
+| **all valid** | **91** | **78.0%** | **13.2%** | **8.8%** |
+
+Reference: the 1.7B self-compressions judged **40% faithful / 21% wrong**
+(activity 005 f13). The 32B with gold in hand is far better in aggregate — and
+**at levels 8–9 it is worse than that baseline on the wrong-rate** (28.6% vs
+21%). Flags over valid judgments: `dropped_branch` **24.2%** (the top flag,
+corroborating findings 7–8), `invented_content` 12.1%, `fused_steps` 9.9%,
+`dropped_values` 2.2%, `off_topic` 0%.
+
+**Judgments on records with no verbose source are meaningless and were
+inflating the headline.** With an empty ORIGINAL the rubric has nothing to
+compare against, and the judge returned **94.7% faithful** on those 38 records
+against 78.0% on the 91 real ones. They pulled the aggregate from 78.0% to
+82.9%. `faithfulness_audit.py` now refuses them. Stage-A corpora legitimately
+contain such records (the ~34% of problems with no verified trace), so this is
+not a corpus defect — it is a sampling rule the packet did not state.
+
+### Pinned thresholds
+
+**The pause rule is per band, not aggregate** — this is CLAUDE.md's
+segment-reporting invariant applied to the audit. An aggregate floor of 55%
+would sit unbroken while levels 8–9 ran at 30%, because level-1 GSM8K is half
+the corpus and scores 97%.
+
+Over the trailing 200 **valid** judgments:
+
+| | floor / ceiling | calibration value |
+|---|---|---|
+| aggregate faithful | ≥ 70% | 78.0% |
+| aggregate wrong | ≤ 15% | 8.8% |
+| hard band (level ≥ 6) faithful | ≥ 45% | 57.1% |
+| hard band (level ≥ 6) wrong | ≤ 35% | 19.0% |
+
+The hard-band bounds are deliberately loose relative to the measurement: n = 42
+in that band, so the 1σ sampling error is ≈ 7–8 pp and a tighter bound would
+trip on noise. They are set to catch a *material* degradation (≈ 15 pp), not to
+certify the current value. **F2c uses the same four numbers.**
+
+F2a/F2b targets stand as the packet wrote them: R_acc within 3 pts of the
+all-drafts mean; `verify_kept` ≥ 85% and `branch_kept` ≥ 30% per problem, plus
+**capture efficiency = 100%** as the diagnostic that separates a rule failure
+from a teacher limitation.
+
+### Decisions taken at the checkpoint
+
+1. **Answer budget 1,024 → 2,048; think budget unchanged** (finding 4). Slice
+   regenerated for uniformity; old drafts preserved.
+2. **Register adherence added as the top selection criterion** (finding 9).
+   Free — verify/branch capture efficiency stayed at 100%.
+3. **Runner-up selection split into two passes** (finding 8).
+4. **The register card is NOT changed — user decision, 2026-08-04.** The
+   hard-level register decay (finding 9) is real, but selection recovers 99.2%
+   of problems, the card is a ratified artifact, and a new exemplar deserves its
+   own bake-off rather than a mid-run edit. Carried to a future card revision.
+5. **Audit judgments restricted to source-bearing records.**
+
+---
+
 ## Conclusion
 
 *(pending — F2 verdict goes here)*
