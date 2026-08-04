@@ -57,6 +57,7 @@ from whetstone.round0 import (  # noqa: E402
     percentile,
     read_whitelist_strings,
     scores_from_prompt_logprobs,
+    whitelist_dropped,
     whitelist_token_ids,
 )
 
@@ -156,6 +157,9 @@ def main() -> int:
     ap.add_argument("--min-count", type=int, default=10)
     ap.add_argument("--mean-pct", type=float, default=75.0)
     ap.add_argument("--limit", type=int, default=0)
+    ap.add_argument("--whitelist-all-pieces", action="store_true",
+                    help="packet-literal whitelist expansion; admits digits/whitespace "
+                         "(26.9%% of think tokens) — see whetstone.round0")
     ap.add_argument("--out", required=True)
     ap.add_argument("--scores-out", default=None, help="optional raw per-type dump")
     args = ap.parse_args()
@@ -221,8 +225,17 @@ def main() -> int:
     print(f"[R_stats] {len(r_stats)} types (high mean AND low std)")
 
     wl_strings = read_whitelist_strings(args.card)
-    wl = whitelist_token_ids(tok, wl_strings)
+    wl = whitelist_token_ids(tok, wl_strings, single_token_only=not args.whitelist_all_pieces)
+    dropped = whitelist_dropped(tok, wl_strings)
     print(f"[whitelist] card §2: {len(wl_strings)} strings → {len(wl)} token ids")
+    if not args.whitelist_all_pieces and dropped:
+        n_drop_tok = sum(len(per_type.get(t, [])) for v in dropped.values() for t in v)
+        print(f"[whitelist] dropped {len(dropped)} multi-piece variants "
+              f"(their pieces cover {n_drop_tok:,} think tokens = "
+              f"{100 * n_drop_tok / max(think_tok, 1):.1f}% of the corpus):")
+        for variant, pieces in sorted(dropped.items()):
+            surf = [tok.decode([p]) for p in pieces]
+            print(f"    {variant!r:<8} → {pieces} {surf}")
 
     entry: Dict[str, dict] = {}
     for tid in sorted(r_stats | set(wl)):
@@ -289,7 +302,7 @@ def main() -> int:
 
     print("\nwhitelist coverage in corpus (branch class is expected to be thin):")
     for s in wl_strings:
-        ids = whitelist_token_ids(tok, [s])
+        ids = whitelist_token_ids(tok, [s], single_token_only=not args.whitelist_all_pieces)
         c = sum(len(per_type.get(t, [])) for t in ids)
         print(f"  {s!r:<8} ids={sorted(ids)} occurrences={c}")
     return 0

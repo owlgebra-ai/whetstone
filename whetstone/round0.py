@@ -89,21 +89,62 @@ def read_whitelist_strings(card_path: str | Path) -> List[str]:
     return strings
 
 
-def whitelist_token_ids(tokenizer, strings: Sequence[str]) -> Dict[int, str]:
-    """Every piece-id of each whitelist string, tokenized **bare and spaced**.
+def whitelist_token_ids(
+    tokenizer, strings: Sequence[str], *, single_token_only: bool = True
+) -> Dict[int, str]:
+    """Whitelist ids from card §2 strings, tokenized **bare and space-prefixed**.
 
     Packet §5 step 4: the whitelist enters R by fiat, below the occurrence
     floor, because its whole purpose is to install vocabulary the corpus is too
     thin to select statistically (the ``case``/``✗`` branch class).
+
+    **Deviation from the packet's "all piece-ids included" (activity 007).**
+    That instruction assumes each whitelist string is one token. Three of card
+    §2's entry classes are not, and expanding their pieces admits the
+    *alphabet* rather than the marker:
+
+    * ``1.``–``9.`` → bare digits + ``.`` + ``' '`` (ids 16–24, 13, 220)
+    * bare ``✗`` → undecodable byte fragments (ids 245, 25521), which occur in
+      this corpus only as pieces of *other* multi-byte characters
+
+    Measured on the Round-0 train split those pieces are **26.9% of all think
+    tokens**, at 0.15–1.13 nats mean surprisal — below the p75 = 1.78 threshold,
+    so the statistical rule would never have selected them. More decisively:
+    meter test (c)'s value-substitution corruption edits a *digit* token, so
+    training CE on digit types would train away the surprise the decisive probe
+    has to detect. A marker that is not a token cannot be masked as one.
+
+    A variant therefore contributes its id only when it tokenizes to a single
+    token; multi-piece variants are dropped and reported by
+    :func:`whitelist_dropped`. Pass ``single_token_only=False`` for the
+    packet's literal behaviour.
 
     Returns ``{token_id: surface}`` where ``surface`` is the decoded piece.
     """
     ids: Dict[int, str] = {}
     for s in strings:
         for variant in (s, " " + s):
-            for tid in tokenizer.encode(variant, add_special_tokens=False):
+            pieces = tokenizer.encode(variant, add_special_tokens=False)
+            if single_token_only and len(pieces) != 1:
+                continue
+            for tid in pieces:
                 ids[tid] = tokenizer.decode([tid])
     return ids
+
+
+def whitelist_dropped(tokenizer, strings: Sequence[str]) -> Dict[str, List[int]]:
+    """``{variant: piece_ids}`` for multi-piece variants left out of R.
+
+    Reported so the drop is visible in the journal rather than silent — the
+    failure class activity 005 findings 3 and 5 both belong to.
+    """
+    dropped: Dict[str, List[int]] = {}
+    for s in strings:
+        for variant in (s, " " + s):
+            pieces = tokenizer.encode(variant, add_special_tokens=False)
+            if len(pieces) != 1:
+                dropped[variant] = list(pieces)
+    return dropped
 
 
 def marker_class_ids(tokenizer) -> Dict[str, frozenset]:
@@ -358,5 +399,6 @@ __all__ = [
     "read_whitelist_strings",
     "render_prompt",
     "scores_from_prompt_logprobs",
+    "whitelist_dropped",
     "whitelist_token_ids",
 ]
