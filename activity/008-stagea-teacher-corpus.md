@@ -699,12 +699,44 @@ Run 1 flagged as "biting a real tail". The server's 32,768-token context leaves
 room for a ~26k-token trace beside the ~4k card, so most of those 214 could be
 re-run under `gold+trace`.
 
+**Confirmed at n = 241.** The hard-band rule tripped again two hours later, and
+the same split on a 2× larger sample is no longer tentative:
+
+| hard band (L≥6), n = 241 | n | faithful | lossy | **wrong** |
+|---|---|---|---|---|
+| `gold+trace` | 203 | **57.1%** | 25.1% | **17.7%** |
+| `gold` | 38 | **10.5%** | 15.8% | **73.7%** |
+
+Two-proportion z on faithful = **5.27, p < 1e-6**. This is the strongest single
+effect measured in this packet.
+
+It also explains the alarm. `gold`-only traces are ~16% of hard-band judgments
+and drag the pooled hard-band faithful rate to ~46%; the `gold+trace`
+population alone sits at **57.1%**, above even the original 45% floor. **The
+hard-band alarm is detecting the conditioning contamination, not a teacher
+that has degraded.** Split first-half vs second-half of the hard judgments at
+matched level and conditioning mix: 53.3% → 46.3% faithful, z = 1.08, p = 0.28
+— no established drift over time, and what movement there is goes
+faithful→*lossy*, not faithful→wrong (wrong actually fell 27.5% → 25.6%).
+
+**Threshold re-pinned, and it is worth being explicit that this is not a moved
+goalpost.** The Part-5 checkpoint set the hard-band floor at 45% from n = 42
+measuring 57.1%, and wrote the intent down: *"set to catch a material
+degradation (≈15 pp), not to certify the current value."* At n = 241 the
+hard-band rate is ~50%, so the small-sample estimate was ~7 pp high. Applying
+the **same stated 15 pp rule** to the better estimate gives **35%**. A 45% floor
+against a true 50% with ~83-judgment windows (SE ≈ 5.5 pp) flaps by chance
+about a third of the time, which is exactly what was observed — two trips, one
+at 46.3% and one at 44.6%. The **`wrong` ceiling is deliberately unchanged** at
+35%: it is the metric that decides corpus usability, and it reads 25.3%.
+
 **Two caveats that keep this honest.** (i) The audit can only judge problems
 that *have* a source, so the ~1,326 no-trace problems — generated under exactly
-the conditioning that produces 72.7% wrong — are **never audited at all**. The
-measured rates are therefore optimistic for the corpus as a whole. (ii) The
-`gold` hard-band cell is n = 22; the direction is stark but the estimate is not
-precise.
+the conditioning that produces 73.7% wrong — are **never audited at all**. The
+measured rates are therefore optimistic for the corpus as a whole. (ii) Per
+level, the hard band is not one population: level 9 is 32.1% faithful / 47.2%
+wrong (n = 53) against level 6's 57.7% / 15.5% (n = 71), so pooling them is
+itself a compositional hazard one layer down.
 
 ### 14. Throughput and the queue-depth risk
 

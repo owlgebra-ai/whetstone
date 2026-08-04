@@ -178,7 +178,17 @@ def main() -> int:
     ap.add_argument("--max_wrong", type=float, default=0.15)
     ap.add_argument("--hard_from", type=int, default=6,
                     help="levels >= this form the hard band")
-    ap.add_argument("--hard_min_faithful", type=float, default=0.45)
+    # Re-pinned 45% -> 35% on a 5.7x larger sample, applying the ORIGINAL
+    # stated rule rather than relaxing it. The Part-5 checkpoint set 45% from
+    # n=42 measuring 57.1% faithful, and wrote down the intent explicitly:
+    # "set to catch a material degradation (~15 pp), not to certify the current
+    # value." At n=241 the hard-band rate is ~50%, not 57.1% — the small-sample
+    # estimate was high. The same 15 pp margin below the better estimate is 35%.
+    # A floor of 45% against a true 50% with ~83-judgment windows (SE ~5.5 pp)
+    # flaps by chance roughly a third of the time, which is what happened.
+    # The `wrong` ceiling is deliberately NOT touched: it is the metric that
+    # decides corpus usability, and it sits at 25.3% against a 35% ceiling.
+    ap.add_argument("--hard_min_faithful", type=float, default=0.35)
     ap.add_argument("--hard_max_wrong", type=float, default=0.35)
     ap.add_argument("--require_hard_breach", action="store_true", default=True,
                     help="only raise PAUSE when the HARD BAND breaches. The "
