@@ -131,11 +131,20 @@ def logits_at(model, ids: torch.Tensor, rows: torch.Tensor, chunk: int = 4096) -
     to just the requested hidden states. A 6k-token control trace would
     otherwise materialize 6212 x 151936 logits (1.9 GB) for the ~300 positions
     actually scored.
+
+    The bf16 autocast is load-bearing, not a speed tweak: the trainee's weights
+    are fp32, and fp32 SDPA cannot use the flash/mem-efficient kernels, so it
+    falls back to the math backend and materializes a full (T, T) attention
+    matrix — 10 GB on a 6.2k-token control trace, which OOMs the eval. It also
+    matches the precision the training forward runs at.
     """
-    out = model.model(input_ids=ids)
-    h = out.last_hidden_state if hasattr(out, "last_hidden_state") else out[0]
-    h = h[0, rows, :]
-    return torch.cat([model.lm_head(h[s : s + chunk]) for s in range(0, h.shape[0], chunk)])
+    with torch.autocast("cuda", dtype=torch.bfloat16):
+        out = model.model(input_ids=ids)
+        h = out.last_hidden_state if hasattr(out, "last_hidden_state") else out[0]
+        h = h[0, rows, :]
+        return torch.cat(
+            [model.lm_head(h[s : s + chunk]) for s in range(0, h.shape[0], chunk)]
+        )
 
 
 @torch.no_grad()
