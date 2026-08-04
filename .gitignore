@@ -222,3 +222,7 @@ __marimo__/
 # (the shared ZFS store). Never tracked; see activity 001.
 /data
 /logs
+
+# Per-box scratch scripts (activity 007): turing cannot use /tmp — a stale
+# /tmp/inspect.py there shadows the stdlib inspect module and breaks torch.
+.scratch/
