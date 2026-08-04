@@ -184,7 +184,10 @@ def main() -> int:
     if cache is None:
         print(f"[warn] no π_0 cache at {args.pi0_cache} — S2/S3/(b) will be skipped")
     else:
-        assert cache.uids == [s.uid for s in sets.control], (
+        # Prefix compare: --n-control truncates the eval set but the cache is
+        # built over all 200, and cache.slice(i) is positional. A mismatch here
+        # would silently score pi_theta against another trace's pi_0.
+        assert cache.uids[: len(sets.control)] == [s.uid for s in sets.control], (
             "π_0 cache uid order does not match the eval sets — rebuild the cache "
             "with the same --seed and --n-control-positions"
         )
