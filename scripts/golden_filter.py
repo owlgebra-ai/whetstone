@@ -67,6 +67,10 @@ from faithfulness_audit import RUBRIC, SYSTEM, _parse                # noqa: E40
 from select_teacher_corpus import rank_candidates                    # noqa: E402
 from whetstone.runio import repair_tail                              # noqa: E402
 
+#: Escalating sleeps for a 429. Totals ~21 minutes, which spans a typical
+#: per-minute/per-hour window reset without an operator having to babysit it.
+RATE_LIMIT_BACKOFF_S = (30, 60, 120, 300, 600)
+
 #: Rubric for problems with no verbose source. Deliberately *not* the
 #: faithfulness rubric with an empty ORIGINAL: measured on this corpus, the
 #: judge returns 94.7% "faithful" when handed a blank original, because there is
@@ -157,7 +161,23 @@ def main() -> int:
                     help="append-only log of every judgment; the resume key")
     ap.add_argument("--model", default="glm-5.2")
     ap.add_argument("--base_url", default=os.environ.get("FAITHFULNESS_BASE_URL"))
-    ap.add_argument("--concurrency", type=int, default=12)
+    ap.add_argument("--concurrency", type=int, default=6,
+                    help="kept low on purpose: the judge endpoint returns 429 "
+                         "well before the GPU side saturates, and a rate-limit "
+                         "storm costs more wall-clock than it saves")
+    ap.add_argument("--rebuild_only", action="store_true",
+                    help="rebuild the golden corpus from the judgments log "
+                         "with NO API calls. The log is the source of truth, "
+                         "so this always works and always agrees with a live "
+                         "run that got as far as the same judgments.")
+    ap.add_argument("--fsync_every", type=int, default=25,
+                    help="fsync the judgments log this often; the whole point "
+                         "is that a quota stall or a box reboot loses at most "
+                         "this many judgments")
+    ap.add_argument("--max_consecutive_errors", type=int, default=25,
+                    help="stop cleanly after this many consecutive API "
+                         "failures rather than burning the remaining problems "
+                         "into the 'exhausted' bucket")
     ap.add_argument("--max_attempts", type=int, default=8,
                     help="candidates to try per problem before giving up")
     ap.add_argument("--max_tokens", type=int, default=1024)
@@ -214,6 +234,17 @@ def main() -> int:
     lock = threading.Lock()
     state = Counter()
     t0 = time.time()
+    stop = threading.Event()
+
+    def note_judgment(rec: dict) -> None:
+        """Append + periodically fsync. Line buffering survives a process kill;
+        only the fsync survives the box going down."""
+        with lock:
+            jf.write(json.dumps(rec, ensure_ascii=False) + "\n")
+            state["judgments"] += 1
+            if state["judgments"] % args.fsync_every == 0:
+                jf.flush()
+                os.fsync(jf.fileno())
 
     def judge_one(cand: dict, src: dict) -> dict:
         verbose = (sub.get(cand["_uid"], {}).get("verbose_think") or "").strip()
@@ -228,9 +259,31 @@ def main() -> int:
                 gold=cand.get("ground_truth", ""),
                 compact=cand["compact_think"])
             system, rubric = SELF_CONTAINED_SYSTEM, "self_contained"
-        msg = client.messages.create(
-            model=args.model, max_tokens=args.max_tokens, system=system,
-            messages=[{"role": "user", "content": prompt}])
+        # Quota exhaustion is a *pause*, not a failure. The endpoint's limits
+        # reset on a window, so a long sleep costs wall-clock and nothing else,
+        # whereas giving up costs the caller a manual restart. The anthropic
+        # client's own max_retries handles brief 429 bursts; this handles the
+        # case where the daily/hourly window is genuinely spent.
+        msg = None
+        for attempt, backoff in enumerate(RATE_LIMIT_BACKOFF_S):
+            try:
+                msg = client.messages.create(
+                    model=args.model, max_tokens=args.max_tokens, system=system,
+                    messages=[{"role": "user", "content": prompt}])
+                break
+            except anthropic.RateLimitError:
+                if stop.is_set():
+                    raise
+                with lock:
+                    state["rate_limited"] += 1
+                    if state["rate_limited"] % 20 == 1:
+                        print(f"[quota] rate limited; sleeping {backoff}s "
+                              f"(attempt {attempt + 1}/"
+                              f"{len(RATE_LIMIT_BACKOFF_S)}). Progress is "
+                              f"already on disk.", flush=True)
+                time.sleep(backoff)
+        if msg is None:
+            raise RuntimeError("rate limited past the backoff schedule")
         text = "".join(b.text for b in msg.content if b.type == "text")
         parsed = _parse(text)
         rec = {"_uid": cand["_uid"], "candidate_idx": cand["candidate_idx"],
@@ -251,48 +304,72 @@ def main() -> int:
             rec["verdict_raw"] = text[:400]
         return rec
 
-    def resolve_problem(uid: str) -> tuple[str, dict | None, int]:
+    def resolve_problem(uid: str) -> tuple[str, dict | None, int, str]:
         """Walk this problem's candidates best-first until one is faithful."""
         cands = rank_candidates(by_uid[uid])[:args.max_attempts]
         tried = 0
         for c in cands:
+            if stop.is_set():
+                return uid, None, tried, "aborted"
             key = (uid, c["candidate_idx"], c.get("gen_round", 1))
             prev = judged.get(key)
             if prev is None:
                 try:
                     prev = judge_one(c, sub.get(uid, {}))
                 except Exception as exc:                           # noqa: BLE001
+                    # An API failure is NOT evidence about the trace. Returning
+                    # "exhausted" here would bake a transient 429 into
+                    # unresolved_uids.json and the problem would never be
+                    # retried; it is reported as an error so the next run picks
+                    # it up.
                     with lock:
                         state["api_error"] += 1
-                    return uid, None, tried
+                        state["consecutive_errors"] += 1
+                        if (state["consecutive_errors"]
+                                >= args.max_consecutive_errors
+                                and not stop.is_set()):
+                            stop.set()
+                            print(f"\n[stop] {state['consecutive_errors']} "
+                                  f"consecutive API errors — stopping cleanly. "
+                                  f"Progress is in {args.judgments}; re-run the "
+                                  f"same command to continue.\n"
+                                  f"        last error: {type(exc).__name__}: "
+                                  f"{str(exc)[:160]}", flush=True)
+                    return uid, None, tried, "error"
                 with lock:
-                    jf.write(json.dumps(prev, ensure_ascii=False) + "\n")
-                    state["judgments"] += 1
+                    state["consecutive_errors"] = 0
+                note_judgment(prev)
                 tried += 1
             if prev.get("verdict") == "faithful":
-                return uid, {**c, "_judgment": prev}, tried
-        return uid, None, tried
+                return uid, {**c, "_judgment": prev}, tried, "resolved"
+        return uid, None, tried, "exhausted"
 
-    golden, unresolved = [], []
-    with ThreadPoolExecutor(max_workers=args.concurrency) as ex:
+    golden, exhausted, errored = [], [], []
+    if not args.rebuild_only:
+      with ThreadPoolExecutor(max_workers=args.concurrency) as ex:
         futs = {ex.submit(resolve_problem, u): u for u in todo}
         done = 0
         for fut in as_completed(futs):
-            uid, winner, tried = fut.result()
+            uid, winner, tried, why = fut.result()
             done += 1
             if winner is not None:
                 golden.append(winner)
                 state["resolved"] += 1
                 state[f"tries_{min(tried, 4)}"] += 1
+            elif why == "exhausted":
+                exhausted.append(uid)
+                state["exhausted"] += 1
             else:
-                unresolved.append(uid)
-                state["unresolved"] += 1
+                errored.append(uid)
+                state[f"unresolved_{why}"] += 1
             if done % 100 == 0:
                 el = (time.time() - t0) / 60
                 print(f"[{done}/{len(todo)}] resolved {state['resolved']}  "
                       f"unresolved {state['unresolved']}  "
                       f"{state['judgments']} judgments  "
                       f"{state['judgments']/max(1e-9, el):.0f}/min", flush=True)
+      jf.flush()
+      os.fsync(jf.fileno())
     jf.close()
 
     # Re-attach problems that were already resolved on a previous run.
@@ -325,8 +402,14 @@ def main() -> int:
                 fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
         out_paths[rubric] = path
 
+    # Two distinct buckets. `exhausted` is a finding about the teacher — every
+    # candidate was judged and none passed. `errored` is a finding about the
+    # API and must stay retriable; conflating them would silently retire
+    # problems that were never actually judged.
+    unresolved = exhausted + errored
     with open(os.path.join(args.outdir, "unresolved_uids.json"), "w") as fh:
-        json.dump(sorted(unresolved), fh, indent=1)
+        json.dump({"exhausted": sorted(exhausted),
+                   "errored_retry_next_run": sorted(errored)}, fh, indent=1)
 
     lv = Counter(g.get("level") for g in golden)
     lv_un = Counter(sub.get(u, {}).get("level") for u in unresolved)
