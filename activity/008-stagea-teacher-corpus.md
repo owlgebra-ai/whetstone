@@ -149,7 +149,7 @@ are not a live concern.
 Structural annotation after the finding-3 fix: 41/48 with a source,
 **`verify_kept` 36/41 = 87.8%**, `branch_kept` 3/37 = 8.1%.
 
-### Run 6 — Part 5 calibration slice (turing) — 2026-08-04 08:38 → in progress
+### Run 6 — Part 5 calibration slice (turing) — 2026-08-04 09:00 → 10:22
 
 ```bash
 nohup python -u scripts/teacher_generate.py --max_problems 500 --k 8 \
@@ -171,6 +171,37 @@ Server: `vllm serve nvidia/Qwen3-32B-NVFP4 --quantization modelopt_fp4
 --port 8000`. GPU KV cache **64,224 tokens**; at concurrency 16 usage peaks at
 **93%** with requests starting to queue, so 16 is the ceiling on this card and
 not a tuning preference.
+
+**Result: 4,000 drafts in 82.9 min (48.3/min), 3,841 kept = 96.0%.**
+
+| outcome | n | rate |
+|---|---|---|
+| kept | 3,841 | 96.0% |
+| `reject:cap_think` | 98 | 2.5% |
+| `reject:verify_fail` | 60 | 1.5% |
+| `reject:cap_answer` | **1** | **0.03%** |
+| *flag* `boxed_in_think` (trimmed) | 966 | 24.1% |
+| *flag* `final_answer_trailer` (trimmed) | 256 | 6.4% |
+| *flag* `fence_trailer` (trimmed) | 5 | 0.1% |
+
+`cap_answer` at 1 draft in 4,000 confirms finding 4's budget call. Zero request
+failures; 4,000 distinct `(uid, candidate_idx)` pairs on disk with no
+duplicates, so the resume contract holds exactly.
+
+### Run 7 — full run (turing) — 2026-08-04 10:22 →
+
+Chained behind Run 6 by `/data/whetstone/runs/stagea/run_full.sh`, which waits
+for the calibration process to exit and then `exec`s:
+
+```bash
+python -u scripts/teacher_generate.py --k 8 --concurrency 16 --chunk 512 \
+  --output /data/whetstone/corpora/stagea_raw/drafts.jsonl
+```
+
+Resume is a set-difference on `(uid, candidate_idx)`, so the 500 calibration
+problems are skipped and the remaining 3,500 × 8 = 28,000 drafts run at ~48/min
+≈ **9.7 h**. Alongside it, `/data/whetstone/runs/stagea/select_audit_cycle.sh`
+re-runs selection and one 10-judgment audit round every 15 min.
 
 ---
 
