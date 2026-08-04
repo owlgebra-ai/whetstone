@@ -264,6 +264,7 @@ def main() -> int:
 
     os.makedirs(args.outdir, exist_ok=True)
     out_path = os.path.join(args.outdir, "selected.jsonl")
+    selected_by_uid: dict[str, list] = defaultdict(list)
     sel_reasons, keeps_hist = Counter(), Counter()
     sel_struct = Counter()
     per_level = defaultdict(Counter)
@@ -274,6 +275,7 @@ def main() -> int:
     with open(out_path, "w") as fh:
         for uid in sorted(by_uid):
             kept, st = select_one(by_uid[uid])
+            selected_by_uid[uid] = kept
             keeps_hist[len(kept)] += 1
             lv = kept[0].get("level")
             per_level[lv]["problems"] += 1
@@ -325,6 +327,31 @@ def main() -> int:
     def pct(a, b):
         return round(100.0 * a / b, 2) if b else None
 
+    # ---- problem-level structural capture -----------------------------
+    # The packet's targets ("verify >= 85%, branch >= 30% *on source-branching
+    # problems*") are per-PROBLEM, not per-trace, and the difference is not
+    # cosmetic: with 3 keeps per problem, one branch-keeping trace out of three
+    # reads as 33% per-trace and 100% per-problem. `capture` is the number that
+    # actually tests the selection RULE — of the problems where some candidate
+    # kept the property, how many did selection keep it for. Anything below
+    # 100% there is a bug in the rule; a low `captured` with a 100% `capture`
+    # is a statement about the teacher, not about selection.
+    problem_struct = {}
+    for name, elig, kept_key in (("verify", "src_has_verify", "verify_kept"),
+                                 ("branch", "src_has_branch", "branch_kept")):
+        eligible = [u for u, cs in by_uid.items()
+                    if cs and cs[0]["_s"].get(elig)]
+        available = [u for u in eligible
+                     if any(c["_s"].get(kept_key) for c in by_uid[u])]
+        captured = [u for u in available
+                    if any(c["_s"].get(kept_key) for c in selected_by_uid[u])]
+        problem_struct[name] = {
+            "eligible_problems": len(eligible),
+            "available_pct": pct(len(available), len(eligible)),
+            "captured_pct": pct(len(captured), len(eligible)),
+            "capture_efficiency_pct": pct(len(captured), len(available)),
+        }
+
     report = {
         "n_drafts": n_drafts,
         "n_problems_with_survivors": len(by_uid),
@@ -346,6 +373,7 @@ def main() -> int:
             "verify_eligible_drafts": raw_struct["verify_elig"],
             "branch_eligible_drafts": raw_struct["branch_elig"],
         },
+        "structural_per_problem": problem_struct,
         "think_tokens": {
             "median": percentile(think_lens, 50), "p25": percentile(think_lens, 25),
             "p75": percentile(think_lens, 75), "p95": percentile(think_lens, 95),
@@ -373,7 +401,18 @@ def main() -> int:
     print(f"  branch_kept  raw {st['raw_branch_kept_pct']}%  ->  "
           f"selected {st['sel_branch_kept_pct']}%   "
           f"(n_elig {st['branch_eligible_drafts']})")
-    print(f"  keeps/problem {report['keeps_per_problem']}")
+    print("\n  PER PROBLEM (the packet's F2b targets: verify >=85%, branch >=30%)")
+    print(f"  {'':8} {'eligible':>9} {'available':>10} {'captured':>9} "
+          f"{'capture eff':>12}")
+    for name, ps in report["structural_per_problem"].items():
+        print(f"  {name:<8} {ps['eligible_problems']:>9} "
+              f"{str(ps['available_pct']) + '%':>10} "
+              f"{str(ps['captured_pct']) + '%':>9} "
+              f"{str(ps['capture_efficiency_pct']) + '%':>12}")
+    print("  (capture efficiency < 100% means the RULE is losing available "
+          "structure;\n   a low `available` is a statement about the teacher, "
+          "not about selection)")
+    print(f"\n  keeps/problem {report['keeps_per_problem']}")
     tl = report["think_tokens"]
     print(f"  think tokens  median {tl['median']}  IQR "
           f"[{tl['p25']}, {tl['p75']}]  p95 {tl['p95']}")
