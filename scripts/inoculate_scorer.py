@@ -40,7 +40,9 @@ import torch.nn.functional as F
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from whetstone.round0 import build_sequence, load_jsonl, marker_class_ids  # noqa: E402
-from whetstone.round0_eval import Pi0Cache, build_eval_sets, evaluate  # noqa: E402
+from whetstone.round0_eval import (  # noqa: E402
+    Pi0Cache, assert_alignment, build_eval_sets, evaluate,
+)
 from whetstone.sed import SEDRegularizer, row_logits  # noqa: E402
 
 MODEL = "Qwen/Qwen3-1.7B"
@@ -279,11 +281,18 @@ def main() -> int:
         return m
 
     t_start = time.time()
+    align = assert_alignment(model, sets)
+    print(f"[align] </think> entropy median on native control traces = {align:.2e} nats "
+          "(audit reference 6.6e-05) — logits/token alignment OK")
     m0 = do_eval(0, t_start)
-    print(f"[step 0] </think> sanity entropy: median={m0['close_token_entropy_median']:.2e} "
-          f"mean={m0['close_token_entropy_mean']:.2e} nats "
-          "(median must be ~1e-4..0.02 per activities 003/005; a large MEDIAN means "
-          "the logits/token alignment is off by one)")
+    print(f"[step 0] verbose-control p95 d_t = {m0.get('control_p95_gap', float('nan')):.3f} "
+          f"| register p95 d_t = {m0['s1_p95_gap']:.3f} "
+          f"| τ_spike = {args.tau_spike} must sit between them")
+    print(f"[step 0] compact </think> entropy median = {m0['close_token_entropy_median']:.3f} nats "
+          "(descriptive: π_0 does not expect a compact trace to end where it does)")
+    print(f"[step 0] π_0 self-consistency: S2 KL = {m0.get('s2_kl_mean', float('nan')):.5f}, "
+          f"Δlogp = {m0.get('b_logprob_delta_mean', float('nan')):+.5f} "
+          "(both ≈ 0 ⇒ the cache and the eval path agree; this is S2's noise floor)")
 
     order = np.random.default_rng(args.seed).permutation(len(seqs))
     model.train()

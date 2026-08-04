@@ -219,6 +219,36 @@ class Pi0Cache:
         )
 
 
+def assert_alignment(model, sets: EvalSets, *, n: int = 40, device: str = "cuda",
+                     max_median: float = 0.01) -> float:
+    """Off-by-one alarm: ``</think>`` entropy on **native** control traces.
+
+    The model itself emitted ``</think>`` in these rollouts, so the predicting
+    distribution is near-deterministic there — activity 003's audit measured a
+    median of 6.6e-05 over 182 traces. If the logits/token alignment slips by
+    one, this jumps by orders of magnitude, and every think/answer attribution
+    downstream is silently wrong.
+
+    Deliberately *not* run on the compact register set: there the same quantity
+    is legitimately ~0.275 nats under pi_0, so it cannot distinguish a real
+    misalignment from the register's own accent.
+    """
+    vals = []
+    for seq in sets.control[:n]:
+        ci = seq.masks.close_idx
+        if ci > 0:
+            s = score_positions(model, seq, np.array([ci]), device=device)
+            vals.append(float(s["entropy"][0]))
+    med = float(np.median(vals)) if vals else math.nan
+    if not (med < max_median):
+        raise AssertionError(
+            f"</think> entropy median on native traces = {med:.5f} nats, expected "
+            f"< {max_median} (activity 003 audit: 6.6e-05). The logits/token "
+            "alignment is off by one — every metric in this run would be shifted."
+        )
+    return med
+
+
 # --------------------------------------------------------------------------
 # The four monitoring curves (packet §7)
 # --------------------------------------------------------------------------
@@ -265,8 +295,12 @@ def evaluate(
         if sel_r.any():
             surp_r.extend(s["surprisal"][sel_r].tolist())
 
-        # Sanity anchor (packet §4): the </think> token is near-deterministic.
-        # A non-trivial value here means the logits/token alignment is off by one.
+        # Descriptive only — NOT the alignment anchor. Measured under pi_0 the
+        # median here is 0.275 nats on compact traces, against 8.0e-05 on native
+        # ones (activity 007): a verbose-CoT native genuinely does not expect a
+        # compact trace to end where it does. The packet's ~1e-4..0.02 anchor is
+        # a statement about *native* traces, so the off-by-one assertion lives in
+        # `assert_alignment` and runs on the control set.
         ci = seq.masks.close_idx
         if ci > 0:
             se = score_positions(model, seq, np.array([ci]), device=device, topk=topk)
@@ -300,6 +334,7 @@ def evaluate(
         lp_delta: List[float] = []
         ent_theta: List[float] = []
         ent_pi0: List[float] = []
+        ctrl_gaps: List[float] = []
 
         for i, (seq, pos) in enumerate(zip(sets.control, sets.control_positions)):
             c_ids, c_lp, c_actual, c_ent = cache.slice(i)
@@ -315,6 +350,12 @@ def evaluate(
                 np.asarray(seq.ids)[pos], device=device, dtype=torch.long
             )
             lp_actual = logprobs.gather(-1, actual.unsqueeze(-1)).squeeze(-1)
+            # The verbose baseline d_t. tau_spike has to sit between this and
+            # the register's p95, so it is measured here rather than assumed —
+            # the packet's 0.750 anchor came from a different corpus.
+            ctrl_gaps.extend(
+                (logprobs.max(dim=-1).values - lp_actual).clamp_min(0).cpu().numpy().tolist()
+            )
 
             tv = torch.topk(logprobs, k=min(topk, logprobs.shape[-1]), dim=-1).values
             p = F.log_softmax(tv, dim=-1)
@@ -336,6 +377,8 @@ def evaluate(
             "s2_kl_mean": kl_sum / max(n_kl, 1),
             "s2_n_positions": n_kl,
             "b_logprob_delta_mean": float(np.mean(lp_delta)),
+            "control_p95_gap": percentile(ctrl_gaps, 95),
+            "control_mean_gap": float(np.mean(ctrl_gaps)),
             "control_entropy_median": float(np.median(ent_theta)),
             "control_entropy_mean": float(np.mean(ent_theta)),
             "control_entropy_p80": percentile(ent_theta, 80),
