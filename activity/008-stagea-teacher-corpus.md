@@ -440,7 +440,98 @@ Runners-up now run in two passes: property-adding candidates first, plain
 diversity second, which is what the packet's "priority to runners-up adding a
 structural property the winner lacks" actually asks for.
 
-### 9. Throughput and the queue-depth risk
+### 9. The teacher abandons the register on exactly the problems it exists for
+
+The prefill guarantees the *opener* — 100% of drafts at every level start with
+`goal:` — so "opens with `goal:`" measures the prefill, not the model. The body
+is where adherence lives, and it decays hard with difficulty:
+
+| level | 1 | 3 | 5 | 6 | 7 | 8 | 9 |
+|---|---|---|---|---|---|---|---|
+| carries `⇒` | 99.6% | 98.4% | 70.0% | 84.6% | 82.6% | 88.6% | 87.3% |
+| carries `chk`/`✓` | 97.2% | 85.9% | 62.5% | 64.3% | 63.5% | 64.6% | **54.4%** |
+| **no register at all** | 0.3% | 1.6% | 23.8% | 13.2% | 13.9% | 7.6% | 12.7% |
+| **reads as prose** | 6.5% | 10.9% | 15.0% | 21.4% | 23.5% | 44.3% | **54.4%** |
+| markers/100 char | 3.28 | 2.23 | 1.48 | 1.23 | 1.22 | 1.29 | **0.71** |
+
+("reads as prose" = mean words per non-empty think line > 14; the 32B's own raw
+baseline is 2.10 markers/100 char.)
+
+So the teacher holds the register where it fits easily — arithmetic — and
+reverts to English sentences with a `goal:` header on the hard problems the
+register exists to compress. Hand-read examples confirm it: one level-8 trace is
+five full sentences with no `⇒` and no `chk`, ending "Thus, we conclude that
+P² = P".
+
+**Best-of-K fixes this for free, and this is the sharp contrast with finding 7.**
+Register adherence is *well mixed* across a problem's 8 samples where branch
+retention is clustered: **98.9% of problems have at least one in-register
+candidate — 100% at level 9, where the per-draft rate is only 42.9%.** So the
+criterion went to the **top** of the lexicographic order (a prose trace with a
+`goal:` header is not a compact-register example at all, and installing the
+register is the whole deliverable), and it cost nothing:
+
+| | raw per draft | selected per trace | problems captured | capture efficiency |
+|---|---|---|---|---|
+| in-register | 79.9% | **94.2%** | **99.2%** | 99.2% |
+| verify_kept | 79.8% | 92.7% | 98.8% | **100%** |
+| branch_kept | 16.3% | 25.4% | 39.6% | **100%** |
+
+Verify and branch capture efficiency both stayed at **100%** after inserting a
+criterion above them, because the runner-up property passes still reach them.
+
+### 10. G_spike does not catch the failure the audit exists to catch
+
+A deterministic probe for the packet's named reward-hacking signature — a trace
+that *asserts* the gold rather than deriving it — flags drafts whose compact
+think contains at most one numeral that is not the gold itself. It rises sharply
+with level: 0.0% at level 1, 12.2% at 7, 22.8% at 8, 24.1% at 9.
+
+The probe is a proxy and biased (abstract problems legitimately contain few
+numerals — the same bias `structural_gate.py` records for `invented_frac`), so
+three flagged level-8/9 traces were hand-read. All three are real:
+
+* a ring-theory trace asserting "*a* ∈ *P* ⇒ *a* ∈ (*a*²)", a non-sequitur, as
+  its load-bearing step;
+* a measurability trace whose crux — that an *uncountable* supremum of
+  measurable functions is measurable — is asserted in one line as "sup of
+  continuous functions is measurable ✓";
+* a maximisation trace that computes one test case, checks the formula at
+  p = 1, 2, ∞, and then writes "confirm no configuration gives higher D" with
+  no argument.
+
+**Now the part that matters.** Design §3.2 claims G_spike "subsumes … most of
+the audit's faithfulness function: a hallucinated or unsupported compact step
+is, by construction, a spike." Measured against this probe, it is not:
+
+| | n | think d_t mean | think d_t p95 | **G_spike (β=10)** | markers/100ch | think tok |
+|---|---|---|---|---|---|---|
+| assert-flagged | 66 | 0.825 | 4.984 | **2.76e-05** | 1.23 | 230 |
+| has derivation | 1,407 | 0.613 | 4.162 | **1.48e-05** | 2.50 | 183 |
+| flagged, level ≥ 7 | 51 | 0.884 | 4.925 | **2.95e-05** | 1.14 | 235 |
+| derived, level ≥ 7 | 222 | 0.596 | 3.906 | **2.44e-05** | 1.07 | 382 |
+
+Higher G_spike is *better* reward. **Asserted traces score ~1.9× better on
+G_spike than derived ones**, and the gap survives restricting to level ≥ 7. The
+mechanism is not mysterious: an asserted crux is *fluent* — "confirm no
+configuration gives higher D" is a highly predictable sentence — while a genuine
+derivation step carries real content and is therefore more surprising. G_spike
+rewards fluent hand-waving over substantive derivation.
+
+Caveats, stated plainly: the probe is a numeral-based proxy, n = 66 flagged,
+and only 3 were hand-verified. The direction is nonetheless consistent across
+two cuts and is the classic reward-hacking sign.
+
+**Implications.** (i) The lexicographic winner rule is doing more work than the
+packet assumed — G_spike is the *last* criterion, and on this evidence it should
+stay there. (ii) The GLM audit is not a formality: it is the only instrument in
+the pipeline pointed at this failure, which is why its absence is the one
+genuine gap in this run. (iii) This is a concrete instance of activity 007's
+"the instrument is shallow but honest — do not design a stage that needs a
+sharp threshold", and it should be carried into Stage C, where G_spike-like
+terms enter an actual optimiser and Goodhart pressure is no longer one-shot.
+
+### 11. Throughput and the queue-depth risk
 
 At the real chunk size (512, against the smoke's 64) throughput is **~54
 drafts/min**, not the 23.6 the smoke suggested — the K=8 group shares one prompt
@@ -458,7 +549,7 @@ of completed phase-1 generation (~10 min), because those results live in memory
 until phase 2 finishes. Acceptable here; worth knowing before choosing a larger
 chunk.
 
-### 10. Method note — a `&&` chain behind `&` does not do what it looks like
+### 12. Method note — a && chain behind `&` does not do what it looks like
 
 The scorer ran 996 drafts on **8-commit-old code** after a one-liner of the shape
 `ssh box 'cd repo && git pull && rm out && nohup worker &'`. The `&` backgrounds
