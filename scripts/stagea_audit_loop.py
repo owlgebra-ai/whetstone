@@ -107,8 +107,7 @@ def sample_round(selected: list[dict], done: set, n: int,
     return out
 
 
-def trailing_rates(path: str, window: int) -> tuple[int, float, float]:
-    """(n, faithful_frac, wrong_frac) over the trailing ``window`` judgments."""
+def _load_verdicts(path: str) -> list[dict]:
     rows = []
     if os.path.exists(path):
         with open(path) as fh:
@@ -118,12 +117,39 @@ def trailing_rates(path: str, window: int) -> tuple[int, float, float]:
                 except Exception:                              # noqa: BLE001
                     continue
                 if r.get("parsed") and r.get("verdict"):
-                    rows.append(r["verdict"])
-    rows = rows[-window:]
+                    rows.append(r)
+    return rows
+
+
+def _rates(rows: list[dict]) -> tuple[int, float, float]:
     if not rows:
         return 0, 0.0, 0.0
-    c = Counter(rows)
+    c = Counter(r["verdict"] for r in rows)
     return len(rows), c["faithful"] / len(rows), c["wrong"] / len(rows)
+
+
+def trailing_rates(path: str, window: int) -> tuple[int, float, float]:
+    """(n, faithful_frac, wrong_frac) over the trailing ``window`` judgments."""
+    return _rates(_load_verdicts(path)[-window:])
+
+
+def band_rates(path: str, window: int, hard_from: int = 6) -> dict:
+    """Aggregate **and** hard-band rates over the trailing window.
+
+    The aggregate alone is not a stable quantity here and must not be the alarm
+    (activity 008). Level-1 GSM8K audits at ~95% faithful and levels 8–9 at
+    ~40%, so the aggregate moves with whatever mix the sampler happened to draw:
+    measured over this run, the trailing-200 composition went from 58% level-1
+    to 17% level-1 as the corpus grew, and the aggregate fell 88% → 66% with no
+    established per-band change behind it. An alarm on that number reports the
+    sampler, not the teacher.
+    """
+    rows = _load_verdicts(path)[-window:]
+    hard = [r for r in rows if (r.get("level") or 0) >= hard_from]
+    n, f, w = _rates(rows)
+    hn, hf, hw = _rates(hard)
+    return {"n": n, "faithful": f, "wrong": w,
+            "hard_n": hn, "hard_faithful": hf, "hard_wrong": hw}
 
 
 def main() -> int:
@@ -146,8 +172,19 @@ def main() -> int:
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--window", type=int, default=200,
                     help="trailing judgments the pause rule looks at")
-    ap.add_argument("--min_faithful", type=float, default=0.55)
+    # PINNED at the Part-5 calibration checkpoint (activity 008). The alarm is
+    # per band: the aggregate pair alone fires on sample composition.
+    ap.add_argument("--min_faithful", type=float, default=0.70)
     ap.add_argument("--max_wrong", type=float, default=0.15)
+    ap.add_argument("--hard_from", type=int, default=6,
+                    help="levels >= this form the hard band")
+    ap.add_argument("--hard_min_faithful", type=float, default=0.45)
+    ap.add_argument("--hard_max_wrong", type=float, default=0.35)
+    ap.add_argument("--require_hard_breach", action="store_true", default=True,
+                    help="only raise PAUSE when the HARD BAND breaches. The "
+                         "aggregate is still reported and still logged, but it "
+                         "moves with sampler composition, so on its own it is a "
+                         "false alarm generator (activity 008).")
     ap.add_argument("--follow", action="store_true")
     ap.add_argument("--poll_s", type=int, default=300)
     args = ap.parse_args()
@@ -226,20 +263,35 @@ def main() -> int:
             continue
 
         last_mark = mark
-        n, faithful, wrong = trailing_rates(args.output, args.window)
-        print(f"[rates] trailing {n}: faithful {faithful:.1%}  wrong {wrong:.1%} "
-              f"(1.7B self-compression reference: 40% / 21%)", flush=True)
-        if n >= args.window and (faithful < args.min_faithful
-                                 or wrong > args.max_wrong):
+        br = band_rates(args.output, args.window, args.hard_from)
+        print(f"[rates] trailing {br['n']}: faithful {br['faithful']:.1%} "
+              f"wrong {br['wrong']:.1%}  |  hard band (L>={args.hard_from}) "
+              f"n={br['hard_n']} faithful {br['hard_faithful']:.1%} "
+              f"wrong {br['hard_wrong']:.1%}  "
+              f"(1.7B reference: 40% / 21%)", flush=True)
+        agg_bad = br["n"] >= args.window and (
+            br["faithful"] < args.min_faithful or br["wrong"] > args.max_wrong)
+        hard_bad = br["hard_n"] >= 30 and (
+            br["hard_faithful"] < args.hard_min_faithful
+            or br["hard_wrong"] > args.hard_max_wrong)
+        if agg_bad and not hard_bad:
+            print(f"[rates] aggregate outside bounds but the hard band holds — "
+                  f"this is a composition shift, not a quality drop. "
+                  f"Not raising PAUSE.", flush=True)
+        if hard_bad or (agg_bad and not args.require_hard_breach):
             with open(pause_flag, "w") as fh:
-                json.dump({"n": n, "faithful": faithful, "wrong": wrong,
-                           "min_faithful": args.min_faithful,
+                json.dump({**br, "min_faithful": args.min_faithful,
                            "max_wrong": args.max_wrong,
+                           "hard_min_faithful": args.hard_min_faithful,
+                           "hard_max_wrong": args.hard_max_wrong,
+                           "hard_band_breached": hard_bad,
                            "selected_problems": n_problems}, fh, indent=1)
             print("\n" + "!" * 72, flush=True)
-            print(f"!! PAUSE RULE TRIPPED: faithful {faithful:.1%} "
-                  f"(floor {args.min_faithful:.0%}), wrong {wrong:.1%} "
-                  f"(ceiling {args.max_wrong:.0%}) over {n} judgments.", flush=True)
+            print(f"!! PAUSE RULE TRIPPED on the HARD BAND: n={br['hard_n']}, "
+                  f"faithful {br['hard_faithful']:.1%} "
+                  f"(floor {args.hard_min_faithful:.0%}), "
+                  f"wrong {br['hard_wrong']:.1%} "
+                  f"(ceiling {args.hard_max_wrong:.0%}).", flush=True)
             print(f"!! Flag written to {pause_flag}. Investigate and journal "
                   "before resuming generation.", flush=True)
             print("!" * 72 + "\n", flush=True)
