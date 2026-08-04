@@ -41,7 +41,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from whetstone.round0 import build_sequence, load_jsonl, marker_class_ids  # noqa: E402
 from whetstone.round0_eval import Pi0Cache, build_eval_sets, evaluate  # noqa: E402
-from whetstone.sed import SEDRegularizer  # noqa: E402
+from whetstone.sed import SEDRegularizer, row_logits  # noqa: E402
 
 MODEL = "Qwen/Qwen3-1.7B"
 
@@ -138,6 +138,8 @@ def main() -> int:
     ap.add_argument("--n-control", type=int, default=0)
     ap.add_argument("--n-control-positions", type=int, default=300)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--sed-max-think", type=int, default=1024,
+                    help="cap on SED think tokens per record (memory bound; p99 is 1039)")
     ap.add_argument("--max-steps", type=int, default=0, help="debug cap on optimizer steps")
     ap.add_argument("--no-stop", action="store_true", help="run the full epoch regardless of S1/S2/S3")
     args = ap.parse_args()
@@ -262,8 +264,10 @@ def main() -> int:
 
     t_start = time.time()
     m0 = do_eval(0, t_start)
-    print(f"[step 0] </think> sanity entropy = {m0['close_token_entropy_mean']:.2e} nats "
-          "(must be ~0; a large value means the logits/token alignment is off by one)")
+    print(f"[step 0] </think> sanity entropy: median={m0['close_token_entropy_median']:.2e} "
+          f"mean={m0['close_token_entropy_mean']:.2e} nats "
+          "(median must be ~1e-4..0.02 per activities 003/005; a large MEDIAN means "
+          "the logits/token alignment is off by one)")
 
     order = np.random.default_rng(args.seed).permutation(len(seqs))
     model.train()
@@ -277,33 +281,46 @@ def main() -> int:
         ids = torch.tensor([seq.ids], device="cuda")
         think = torch.tensor(seq.masks.think_mask, device="cuda")
 
-        with torch.autocast("cuda", dtype=torch.bfloat16):
-            logits = model(input_ids=ids).logits
-
-        # --- masked CE on R and think -----------------------------------
+        # Only think tokens carry loss, so lm_head runs on those rows alone —
+        # memory then scales with the think segment (median 150) rather than the
+        # sequence (median 1003, max 4491). SED think positions are capped at
+        # --sed-max-think per record so one outlier trace cannot spike the fp32
+        # log-softmax intermediates past the budget; R positions are never
+        # dropped (there are ~6 per record and they are the point of the loss).
         tm = think.clone(); tm[0] = 0
         pos = torch.nonzero(tm, as_tuple=False).squeeze(-1)
-        labels = ids[0, pos]
-        in_r = torch.isin(labels, r_t)
-        ce = logits.new_zeros(())
-        if in_r.any():
-            rp = pos[in_r]
-            rl = labels[in_r]
-            lp = F.log_softmax(logits[0, rp - 1, :].float(), dim=-1)
+        labels_all = ids[0, pos]
+        in_r = torch.isin(labels_all, r_t)
+        keep = pos
+        if pos.numel() > args.sed_max_think:
+            sel = torch.randperm(pos.numel(), device=pos.device)[: args.sed_max_think]
+            keep = torch.unique(torch.cat([pos[sel], pos[in_r]]))
+        rows_pos = keep
+
+        with torch.autocast("cuda", dtype=torch.bfloat16):
+            rlogits = row_logits(model, ids, rows_pos - 1)
+
+        # --- masked CE on R and think -----------------------------------
+        row_labels = ids[0, rows_pos]
+        row_in_r = torch.isin(row_labels, r_t)
+        ce = rlogits.new_zeros(())
+        if row_in_r.any():
+            sub = rlogits[row_in_r].float()
+            lp = F.log_softmax(sub, dim=-1)
             # Sum, normalized by the corpus mean R-tokens-per-record: every R
             # occurrence carries equal weight (a per-record mean would make one
             # marker in a short trace count as much as ten in a long one), while
             # the gradient scale stays ~O(1).
-            ce = -lp.gather(-1, rl.unsqueeze(-1)).squeeze(-1).sum() / norm_r
+            ce = -lp.gather(-1, row_labels[row_in_r].unsqueeze(-1)).squeeze(-1).sum() / norm_r
 
-        sed_loss = sed.loss(logits, ids, think)
+        sed_loss = sed.loss_rows(rlogits, ids, rows_pos)
         loss = ce + args.alpha_sed * sed_loss
 
         if args.kl_non_r > 0 and cache is not None:
             raise NotImplementedError("--kl-non-r needs a π_0 forward; off by default (design §2)")
 
         (loss / args.accum).backward()
-        ce_run += float(ce); sed_run += float(sed_loss); n_run += 1
+        ce_run += float(ce.detach()); sed_run += float(sed_loss.detach()); n_run += 1
         micro += 1
 
         if micro % args.accum == 0:

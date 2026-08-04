@@ -60,6 +60,35 @@ H_PIVOT_DEFAULT = 0.6707
 DELTA_MAX_DEFAULT = 0.7
 
 
+def row_logits(
+    model: nn.Module,
+    input_ids: torch.Tensor,
+    rows: torch.Tensor,
+    attention_mask: Optional[torch.Tensor] = None,
+    chunk: int = 4096,
+) -> torch.Tensor:
+    """Logits at the *predicting* rows only — ``(N, V)``.
+
+    Runs the transformer body over the whole sequence (the conditioning has to
+    be right) and applies ``lm_head`` to just the rows that carry loss. Round 0
+    supervises think tokens only — a median 150 of a 1003-token sequence — so
+    computing the full ``(1, T, V)`` tensor spends most of its memory on prompt
+    and answer positions that get no gradient. On this corpus's longest record
+    (4,491 tokens) the full tensor is 1.36 GB before autograd saves a copy,
+    which does not fit beside fp32 weights + Adam moments on a 32 GB card.
+
+    Falls back to a plain forward for models without the ``.model``/``.lm_head``
+    split (the toy models in the unit tests).
+    """
+    if not (hasattr(model, "model") and hasattr(model, "lm_head")):
+        out = model(input_ids=input_ids, attention_mask=attention_mask)
+        return out.logits[0, rows, :]
+    out = model.model(input_ids=input_ids, attention_mask=attention_mask)
+    h = out.last_hidden_state if hasattr(out, "last_hidden_state") else out[0]
+    h = h[0, rows, :]
+    return torch.cat([model.lm_head(h[s : s + chunk]) for s in range(0, h.shape[0], chunk)])
+
+
 def topk_entropy(logits: torch.Tensor, k: int = 512, tau: float = 1.0) -> torch.Tensor:
     """Entropy (nats) of the top-``k``-renormalized distribution at temperature ``tau``.
 
@@ -199,10 +228,9 @@ class SEDRegularizer:
         the requested ``positions``. Rule 3: everything here is the *shadow's*
         logits — the trainee's are never consulted.
         """
-        out = self.shadow(input_ids=input_ids, attention_mask=attention_mask)
         # logits at position t-1 predict token t; `positions` are the token
         # positions, so the predicting rows are positions-1.
-        rows = out.logits[0, positions - 1, :]
+        rows = row_logits(self.shadow, input_ids, positions - 1, attention_mask)
 
         H_all, tau_all, delta_all, lp_all = [], [], [], []
         for s in range(0, rows.shape[0], self.chunk):
@@ -263,14 +291,42 @@ class SEDRegularizer:
             zero = student_logits.sum() * 0.0
             return (zero, {"n_tokens": 0}) if return_stats else zero
 
+        return self.loss_rows(
+            student_logits[0, positions - 1, :],
+            input_ids,
+            positions,
+            attention_mask=attention_mask,
+            return_stats=return_stats,
+        )
+
+    def loss_rows(
+        self,
+        student_row_logits: torch.Tensor,
+        input_ids: torch.Tensor,
+        positions: torch.Tensor,
+        *,
+        attention_mask: Optional[torch.Tensor] = None,
+        return_stats: bool = False,
+    ):
+        """K2 over pre-sliced rows — ``student_row_logits[i]`` predicts
+        ``input_ids[0, positions[i]]``.
+
+        The entry point for callers that already restricted the trainee's
+        ``lm_head`` to the supervised rows (see :func:`row_logits`); ``loss``
+        delegates here after deriving positions from the think mask.
+        """
+        if positions.numel() == 0:
+            zero = student_row_logits.sum() * 0.0
+            return (zero, {"n_tokens": 0}) if return_stats else zero
+
         labels = input_ids[0, positions]
         lp_phi, H, tau, delta = self._shadow_targets(
             input_ids, attention_mask, positions, labels
         )
 
         # Trainee side: exact full-vocab logprob at the same data tokens.
-        # Chunked so a long sequence never materializes T x V in fp32 at once.
-        rows = student_logits[0, positions - 1, :]
+        # Chunked so a long sequence never materializes N x V in fp32 at once.
+        rows = student_row_logits
         parts = []
         for s in range(0, rows.shape[0], self.chunk):
             blk = F.log_softmax(rows[s : s + self.chunk].float(), dim=-1)
@@ -288,7 +344,7 @@ class SEDRegularizer:
                 "tau_mean": float(tau.mean()),
                 "tau_at_lo_frac": float((tau <= self.tau_lo + 1e-4).float().mean()),
                 "tau_at_hi_frac": float((tau >= self.tau_hi - 1e-4).float().mean()),
-                "k2_mean": float(loss),
+                "k2_mean": float(loss.detach()),
             }
         return loss
 
@@ -297,6 +353,7 @@ __all__ = [
     "DELTA_MAX_DEFAULT",
     "H_PIVOT_DEFAULT",
     "SEDRegularizer",
+    "row_logits",
     "solve_temperature",
     "topk_entropy",
 ]

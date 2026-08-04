@@ -281,6 +281,11 @@ def evaluate(
         "hum_R_n": len(surp_r),
         "heldout_mean_surprisal": float(np.mean(surp_all)) if surp_all else math.nan,
         "heldout_think_tokens": len(gaps_all),
+        # entropy_audit.py reports the MEDIAN of this (activities 003/005 quote
+        # ~1e-4..0.02); the mean is dominated by a handful of traces where the
+        # compact body genuinely does not predict its own end. Report both, and
+        # compare the median when using it as the off-by-one alarm.
+        "close_token_entropy_median": float(np.median(close_entropy)) if close_entropy else math.nan,
         "close_token_entropy_mean": float(np.mean(close_entropy)) if close_entropy else math.nan,
     }
     for name, vals in gaps_by_class.items():
