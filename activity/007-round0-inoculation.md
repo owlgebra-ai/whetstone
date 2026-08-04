@@ -3,7 +3,7 @@
 - **Packet:** [packets/P4-round0-inoculation.md](packets/P4-round0-inoculation.md)
 - **Status:** done
 - **Machine(s):** mac (code), turing (all scoring, training, meter tests)
-- **Code commit(s):** `4adbabd` → `<this commit>`
+- **Code commit(s):** `4adbabd` → `39f2e73`
 - **Started / finished:** 2026-08-03 → 2026-08-03
 
 ## Goal
