@@ -240,25 +240,37 @@ Three details that make this safe rather than merely convenient:
 Anything that reaches `triage` with a boxed result still inside the register is
 now a genuine mid-trace violation and is rejected, not edited.
 
-### 3. Method note — the structural gate silently had nothing to compare against
+### 3. Method note — two silent data bugs, both caught by running the smoke end to end
 
-Caught by the Run-5 smoke: **every** draft came back `no_source`, i.e.
-`verify_kept` and `branch_kept` were `None` for all 48. `annotate()` read
-`draft["verbose_think"]`, but the raw corpus deliberately does not carry a
-per-draft copy of the verbose trace (that would be 8 copies of a ~4.5k-token
-trace per problem). The field was simply absent.
+Continuing the tally (005 findings 3/5, 007 finding 10). Neither raised an
+error; both would have produced a plausible corpus and a plausible F2 table.
 
-Nothing errored. Selection would have run, produced a plausible corpus, and
-reported "selection beats raw on verify_kept" as a comparison of two vacuous
-`None`s — with the one criterion activity 007 finding 7 specifically added
-turned off. This is the fourth entry in the running tally (005 findings 3/5,
-007 finding 10) of a would-be false finding caught by a check that existed
-before the number was believed.
+**(a) The structural gate had nothing to compare against.** Every draft in the
+Run-5 smoke came back `no_source` — `verify_kept` and `branch_kept` were `None`
+for all 48. `annotate()` read `draft["verbose_think"]`, but the raw corpus
+deliberately does not carry a per-draft copy of the verbose trace (8 copies of a
+~4.5k-token trace per problem), so the field was simply absent. Selection would
+have run and reported "selection beats raw on `verify_kept`" as a comparison of
+two vacuous `None`s — with the one criterion activity 007 finding 7
+*specifically added* turned off. Fixed by joining the source in from the subset
+file, with a startup refusal if that yields nothing.
 
-Fixed by joining the source in from the subset file, with a startup refusal if
-that yields nothing. Also recorded `source_seen_by_teacher`, so the 214 traces
-that exist but exceeded the conditioning cap stay distinguishable from the ones
-the teacher actually read.
+Also recorded `source_seen_by_teacher`, so the 214 traces that exist but
+exceeded the conditioning cap stay distinguishable from the ones the teacher
+actually read.
+
+**(b) The selected corpus had no `_uid`.** `select_teacher_corpus.py` dropped
+every key starting with `_` to strip its own scratch fields, which also dropped
+`_uid` — the join key for Stage B, the rolling audit and every later analysis.
+A record missing its id is still valid JSON. Fixed by enumerating the scratch
+keys, plus a hard refusal on emit; `poolutil.write_jsonl` whitelists `_uid` for
+exactly this reason and the convention should have been followed.
+
+The standing lesson from 007 holds and gains a corollary: checking a number
+against a measurement whose answer is already known catches false *findings*;
+running the whole pipeline on 50 records catches false *plumbing*. Both bugs
+were invisible in unit terms and obvious the moment a real record came out the
+far end.
 
 ### 4. Throughput and the queue-depth risk
 
