@@ -93,6 +93,45 @@ def marker_density(think: str) -> float:
     return 100.0 * sum(think.count(m) for m in ALL_MARKERS) / len(think)
 
 
+#: Mean words per non-empty think line above which a trace reads as prose
+#: rather than as register lines. Measured, not guessed: level-1 traces sit at
+#: 6.5% over this line and level-9 traces at 54.4%.
+PROSE_WORDS_PER_LINE = 14.0
+
+
+def words_per_line(think: str) -> float:
+    lines = [l for l in think.splitlines() if l.strip()]
+    if not lines:
+        return 0.0
+    return sum(len(l.split()) for l in lines) / len(lines)
+
+
+def in_register(think: str) -> bool:
+    """Is this trace actually written in the register, or is it prose?
+
+    Prefilling ``<think>\\ngoal:`` guarantees the *opener* — 100% of drafts at
+    every level start with it — so "opens with goal:" measures the prefill, not
+    the model. What decays with difficulty is the body: measured over the
+    calibration slice, traces carrying a ``⇒`` fall 99.6% → 87.3% from level 1 to
+    9, those carrying a ``chk``/``✓`` fall 97.2% → 54.4%, and those whose lines
+    read as sentences rather than register steps rise 6.5% → **54.4%**. The
+    teacher holds the register where it fits easily and reverts to prose exactly
+    on the hard problems the register exists to compress.
+
+    Two signals, both from the card: the result marker must be present (card
+    §1.1) and lines must be steps rather than sentences (card §1.2 makes the
+    newline the step boundary). Deliberately *not* a marker-density floor —
+    density legitimately falls on symbolic problems whose lines are long LaTeX,
+    so a density gate would penalise correct hard-problem style.
+
+    Used as a selection *preference*, never a filter: 98.9% of problems have at
+    least one in-register draft among their 8 (100% at level 9, where the
+    per-draft rate is 42.9%), so unlike branch retention — which is clustered by
+    problem and cannot be bought with K — this one best-of-K fixes for free.
+    """
+    return "⇒" in think and words_per_line(think) <= PROSE_WORDS_PER_LINE
+
+
 def quality(s: dict) -> float:
     """G_spike(β=10) × G_budget — the packet's continuous criterion (c)."""
     gs, gb = s.get("g_spike_b10"), s.get("g_budget")
@@ -128,17 +167,26 @@ def select_one(cands: list[dict]) -> tuple[list[dict], dict]:
 
     def rank(c):
         s = c["_s"]
+        # Register adherence ranks FIRST. A prose trace with a `goal:` header is
+        # not a compact-register example at all, and installing the register is
+        # the entire deliverable — so it should not win on a structural
+        # tie-break or on G_spike. It is affordable at the top precisely because
+        # it is the one property best-of-K can nearly always supply (98.9% of
+        # problems have an in-register candidate).
+        reg = 1 if in_register(c.get("compact_think", "")) else 0
         # None (no source) sorts with False: it is not a claim, so it cannot
         # win the tie-break — but it does not lose to a *failed* keep either,
         # which is why the value is the same 0 rather than -1.
         v = 1 if (src_verify and s.get("verify_kept") is True) else 0
         b = 1 if (src_branch and s.get("branch_kept") is True) else 0
-        return (-v, -b, -quality(s), c["candidate_idx"])
+        return (-reg, -v, -b, -quality(s), c["candidate_idx"])
 
     ordered = sorted(cands, key=rank)
     winner = ordered[0]
     ws = winner["_s"]
     reasons = []
+    if not in_register(winner.get("compact_think", "")):
+        reasons.append("no_in_register_candidate")
     if src_verify:
         reasons.append("verify_kept" if ws.get("verify_kept") is True
                        else "verify_lost")
@@ -265,6 +313,7 @@ def main() -> int:
     os.makedirs(args.outdir, exist_ok=True)
     out_path = os.path.join(args.outdir, "selected.jsonl")
     selected_by_uid: dict[str, list] = defaultdict(list)
+    sel_records: list = []
     sel_reasons, keeps_hist = Counter(), Counter()
     sel_struct = Counter()
     per_level = defaultdict(Counter)
@@ -276,6 +325,7 @@ def main() -> int:
         for uid in sorted(by_uid):
             kept, st = select_one(by_uid[uid])
             selected_by_uid[uid] = kept
+            sel_records.extend(kept)
             keeps_hist[len(kept)] += 1
             lv = kept[0].get("level")
             per_level[lv]["problems"] += 1
@@ -327,6 +377,22 @@ def main() -> int:
     def pct(a, b):
         return round(100.0 * a / b, 2) if b else None
 
+    # ---- register adherence, raw vs selected --------------------------
+    raw_reg = [in_register(c.get("compact_think", ""))
+               for cs in by_uid.values() for c in cs]
+    sel_reg = [in_register(r.get("compact_think", "")) for r in sel_records]
+    avail_reg = sum(1 for cs in by_uid.values()
+                    if any(in_register(c.get("compact_think", "")) for c in cs))
+    cap_reg = sum(1 for u, ks in selected_by_uid.items()
+                  if any(in_register(k.get("compact_think", "")) for k in ks))
+    register_stats = {
+        "raw_per_draft_pct": pct(sum(raw_reg), len(raw_reg)),
+        "selected_per_trace_pct": pct(sum(sel_reg), len(sel_reg)),
+        "problems_with_in_register_candidate_pct": pct(avail_reg, len(by_uid)),
+        "problems_captured_pct": pct(cap_reg, len(by_uid)),
+        "prose_words_per_line_threshold": PROSE_WORDS_PER_LINE,
+    }
+
     # ---- problem-level structural capture -----------------------------
     # The packet's targets ("verify >= 85%, branch >= 30% *on source-branching
     # problems*") are per-PROBLEM, not per-trace, and the difference is not
@@ -374,6 +440,7 @@ def main() -> int:
             "branch_eligible_drafts": raw_struct["branch_elig"],
         },
         "structural_per_problem": problem_struct,
+        "register": register_stats,
         "think_tokens": {
             "median": percentile(think_lens, 50), "p25": percentile(think_lens, 25),
             "p75": percentile(think_lens, 75), "p95": percentile(think_lens, 95),
@@ -401,6 +468,11 @@ def main() -> int:
     print(f"  branch_kept  raw {st['raw_branch_kept_pct']}%  ->  "
           f"selected {st['sel_branch_kept_pct']}%   "
           f"(n_elig {st['branch_eligible_drafts']})")
+    rg = report["register"]
+    print(f"\n  register adherence  raw/draft {rg['raw_per_draft_pct']}%  ->  "
+          f"selected/trace {rg['selected_per_trace_pct']}%   "
+          f"(problems with a candidate {rg['problems_with_in_register_candidate_pct']}%, "
+          f"captured {rg['problems_captured_pct']}%)")
     print("\n  PER PROBLEM (the packet's F2b targets: verify >=85%, branch >=30%)")
     print(f"  {'':8} {'eligible':>9} {'available':>10} {'captured':>9} "
           f"{'capture eff':>12}")
