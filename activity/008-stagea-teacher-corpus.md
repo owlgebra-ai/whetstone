@@ -272,14 +272,135 @@ running the whole pipeline on 50 records catches false *plumbing*. Both bugs
 were invisible in unit terms and obvious the moment a real record came out the
 far end.
 
-### 4. Throughput and the queue-depth risk
+### 4. The two generation caps are different kinds of thing
 
-23.6 drafts/min at concurrency 16 → **32,000 drafts ≈ 22.6 h**, in line with the
-packet's ~24 h. Scoring runs at ~1,200/min on spark, **50× faster than
-generation**, so the packet's "monitor queue depth / throttle generation"
-contingency is dead letter at this scale: the scorer is idle-waiting almost all
-the time. Prefix-cache hit rate holds at 74–80%, which is the shared card prefix
-(3,987 rendered tokens) plus the K=8 per-problem prefix doing their job.
+The first 1,024 calibration drafts (answer budget 1,024) put the rejections
+squarely in the hard band:
+
+| level | 1 | 5 | 6 | 7 | 8 | 9 |
+|---|---|---|---|---|---|---|
+| `cap_answer` | 0.0% | 2.5% | **15.4%** | 6.2% | 8.3% | 2.1% |
+| `cap_think` | 0.3% | 0.0% | 0.7% | 0.0% | 4.2% | **16.7%** |
+
+Treating both as "the budget was too small" would have been wrong:
+
+* **`cap_answer` is a pure artifact.** `G_budget` is think-only (design §3.2)
+  and card §1.5 makes the answer a normal LaTeX solution, so nothing in Stage A
+  wants the answer short. Truncating it biased the corpus against exactly the
+  levels the project's claims live in ("the success criterion is specifically
+  improving the low-pass-rate rows", design §6). **Raised to 2,048** — after
+  which it fires **zero times** at every level, and answer length comes out p99
+  1,125 / max 1,492, so the new budget has real headroom.
+* **`cap_think` is signal and was left alone.** A think segment past 2,048
+  tokens has already failed the register's own premise — B_target is 600 and
+  the observed median is 164. Level 9's 14.6% is "the teacher could not write
+  this one compactly", which is information, and those problems are Stage-C
+  rescue's designated clientele. Raising the cap would launder a failure into a
+  long trace.
+
+Effect of the fix, first 1,024 drafts each way: overall kept **94.8% → 97.3%**,
+level 6 kept **78.7% → 94.9%**. The 1,024 old-budget drafts were **moved to
+`/data/whetstone/corpora/stagea_raw/_capA_1024/`, not deleted**, and the slice
+was regenerated so the corpus has one uniform budget throughout.
+
+### 5. Per-level R_acc clears the packet's floor, and the floor needs an honest denominator
+
+`scripts/stagea_draft_stats.py`, first 1,024 drafts under the final budget:
+
+| level | drafts | gate % | R_acc / gated | R_acc / all |
+|---|---|---|---|---|
+| 1 | 608 | 99.3% | 99.0% | 98.4% |
+| 2 | 16 | 100% | 100% | 100% |
+| 3 | 48 | 100% | 100% | 100% |
+| 4 | 40 | 100% | 97.5% | 97.5% |
+| 5 | 40 | 100% | 100% | 100% |
+| 6 | 136 | 100% | 94.9% | 94.9% |
+| 7 | 64 | 100% | 100% | 100% |
+| 8 | 24 | 95.8% | 100% | 95.8% |
+| 9 | 48 | **85.4%** | 95.1% | 81.2% |
+
+**Every level clears the packet's ~90% R_acc floor** (min 94.9%, at level 6), so
+the privileged prompt is doing its job and the run continues. Level 9's 85.4%
+gate rate is the `cap_think` story above, not an accuracy story — which is
+precisely why the two denominators are reported separately.
+
+The trap worth recording: my first scratch analysis computed the verify rate
+over drafts with `reject_reason is None` and reported **100.00%**. That is a
+tautology — `verify_fail` *is* one of the rejection reasons — and it looked like
+a result. `stagea_draft_stats.py` exists partly to make that mistake
+unavailable.
+
+Register density over kept drafts: **2.59 markers/100 think chars** (mean 2.76)
+against the 32B's own single-draft baseline of 2.10. Think median 164, p95 599
+— i.e. the p95 lands essentially *on* `B_target = 600` without any length
+pressure having been applied, because selection has not even run yet.
+
+### 6. Stage-B ZPD sizing — activity 006's open item 2, answered (with a caveat)
+
+Activity 006 asked for the masked fraction to be measured on the 32B corpus
+before Stage B is sized. `score_drafts.py` now stores a per-draft histogram of
+student-side think-token surprisal, so it can be answered for any γ without
+re-scoring. Over 244,982 think tokens from 996 drafts:
+
+| surprisal (nats) | share | cumulative |
+|---|---|---|
+| < 0.5 | **72.5%** | 72.5% |
+| 0.5–1 | 6.7% | 79.2% |
+| 1–2 | 7.7% | 86.9% |
+| 2–4 | 6.7% | 93.6% |
+| 4–8 | 4.9% | 98.5% |
+| 8–16 | 1.5% | 100.0% |
+| ≥ 16 | 0.0% | 100.0% |
+
+γ = 1.0 masks 20.8% of think tokens; γ = 4.0 masks 6.4%. The 32B's compact
+register is **largely inside the student's reachable zone** — the fear behind
+006's open item (a teacher so far ahead that Stage B masks rather than learns)
+is not realised at this gap.
+
+**Caveat, and it is load-bearing: this is measured under `scorer_v1`, not under
+the checkpoint Stage B actually starts from.** `scorer_v1` has had 91% of the
+register style tax removed (`goal` 39.98 → 1.21 nats, activity 007), so it finds
+register text far more probable than the original checkpoint does. Stage B's
+band-pass runs under the *student*, which begins from the **original**
+checkpoint and has had no inoculation. **These numbers are therefore a lower
+bound on the masked fraction, and P6 must re-measure under the original
+checkpoint before pinning γ** — one cheap pass over the selected corpus. Quoting
+this table as Stage B's γ calibration would be a genuine error.
+
+### 7. Throughput and the queue-depth risk
+
+At the real chunk size (512, against the smoke's 64) throughput is **~54
+drafts/min**, not the 23.6 the smoke suggested — the K=8 group shares one prompt
+prefix and vLLM's prefix cache serves it, holding a 74–80% hit rate on the
+shared card (3,987 rendered tokens) plus the per-problem prefix. That puts the
+full 32,000 drafts at **≈ 10 h**, comfortably inside the packet's ~24 h budget.
+
+Scoring runs at ~1,200/min on spark, **~22× faster than generation**, so the
+packet's "monitor queue depth / throttle generation" contingency is dead letter
+at this scale: the scorer idle-waits almost all the time.
+
+Operational note for later packets: the `chunk` size is also the resume
+granularity for phase-1 work. A kill mid-chunk discards up to 512 drafts' worth
+of completed phase-1 generation (~10 min), because those results live in memory
+until phase 2 finishes. Acceptable here; worth knowing before choosing a larger
+chunk.
+
+### 8. Method note — a `&&` chain behind `&` does not do what it looks like
+
+The scorer ran 996 drafts on **8-commit-old code** after a one-liner of the shape
+`ssh box 'cd repo && git pull && rm out && nohup worker &'`. The `&` backgrounds
+the *entire* chain, so the verification I thought I was doing (pull, then
+launch) raced, and the launch won. It surfaced only because the new
+surprisal field came back absent from every record — the same shape as
+finding 3's two bugs, and caught the same way: by looking at a real record
+instead of at an exit code.
+
+Activity 001's gotcha 6 already says "first step of any packet touching a remote
+box: push from the Mac, `git pull` + `git status` on the box, and reconcile."
+The addition is that **the pull must be its own command with its own verified
+output** — `git rev-parse --short HEAD` compared against the Mac's — not a link
+in a chain whose exit code nobody reads. Scores were discarded and re-run; the
+raw corpus was untouched, which is exactly what the raw/selected split is for.
 
 ---
 
