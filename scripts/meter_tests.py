@@ -12,17 +12,24 @@ from a pass that holds across a plateau.
                          branch-keeping traces lean on it (activity 006).
     (b) Verbose intact — mean per-token logprob delta vs pi_0 on the verbose
                          control within eps.
-    (c) Corrupted probe — DECISIVE. Corrupted spans must still spike above
-                         tau_leap while the clean twin's same span stays below
-                         tau_spike. Failing (c) invalidates the scorer no matter
-                         how (a) and (b) look, because the instrument would then
-                         be measuring style only and would rate an unsupported
-                         leap as followable.
+    (c) Corrupted probe — DECISIVE. Corrupted spans must still stand apart from
+                         their own clean twins. Failing (c) invalidates the
+                         scorer no matter how (a) and (b) look, because the
+                         instrument would then be measuring style only and would
+                         rate an unsupported leap as followable.
 
 tau_leap is **pinned from the measured separation**, not assumed: it is chosen
 at the point that maximizes Youden's J (TPR - FPR) over the paired
 clean/corrupted span-p95 distributions, and the ROC AUC is reported alongside so
 the choice can be audited rather than trusted.
+
+(c) is judged on that separation alone and never against tau_spike. Design §8
+Risk 1 asks whether calibrating away the style tax *dulls the leap detector*, so
+the quantity of interest is how well this checkpoint separates corrupted from
+clean — a property of the checkpoint, not of where (a)'s threshold happens to
+sit. Since step0000 is pi_0 itself, the comparison that actually answers Risk 1
+is the AUC at the winner against the AUC at step0000: if the register hum falls
+while the AUC holds, the band exists.
 """
 
 from __future__ import annotations
