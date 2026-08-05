@@ -506,6 +506,52 @@ The think block is alive and register markers are being emitted (0.164 at step 0
 > rest of the trace harder. All three corpora and their gate files are kept under
 > `/data/whetstone/corpora/stageb/{golden,golden_nogoal,golden_okay}/`.
 
+### Run 8 — Arm A (whitelist floor) COMPLETE: round 1, 602 steps, 32 min
+
+`/data/whetstone/runs/009/round1_golden/`, checkpoints
+`/data/whetstone/ckpt/stageb/golden/round1/` (13 saves + `epoch1` + `final`, 54 GB).
+
+**Numerics sanity — all clean.** EMA syncs **120 = 602 ÷ 5 exactly** (optimizer
+steps, not micro-batches); `theta_drift_rel` **3.400e-03**, never the silent-no-op
+zero; peak memory **28.3 GB** of 32.6; Z-floor bound on 0 / 2,414 sequences.
+
+**Assimilation trajectory** (20 held-out val problems, greedy, 2,048 cap):
+
+| step | think | answer | g | markers/100ch | leak |
+|---|---|---|---|---|---|
+| 0 | 2,047 | 0 | 0.20 | 0.164 | 0.00 |
+| 100 | 490 | 223 | 0.80 | 0.511 | 0.00 |
+| 300 | 484 | 236 | 0.70 | 0.633 | 0.00 |
+| 600 | **558** | 344 | 0.75 | **0.788** | **0.00** |
+
+**Entropy — restoration mode delivered on every statistic** (control slice,
+teacher-forced, top-512):
+
+| | step 0 | final | audit baseline |
+|---|---|---|---|
+| mean | 0.3286 | **0.6455** | 0.3176 |
+| median | 0.0125 | **0.2603** | 0.0278 |
+| p80 | 0.6490 | **1.2282** | 0.6923 |
+
+Median entropy ends **9.4× the audit baseline**. Diagnosis #3 (entropy collapse
+before RL) is not merely avoided here, it is reversed. Note this is the
+teacher-forced control slice; **F3c is decided on the student's own fresh
+rollouts** via `entropy_audit.py`, still to run.
+
+**Open concern — g-rate 0.75 against F3d's ≥0.99.** Unresolved at this point: the
+training panel is greedy with a **2,048-token cap** on DeepMath val problems,
+and a cap that tight produces `missing_think_close` failures that say nothing
+about the model's formatting. The GSM8K eval runs at a 32k cap and separates
+them. The gate-reason counter added at `3a77b27` reports this directly from
+round 2 onward; arm A predates it, deliberately (arms A and B must be read on
+the same statistic, so turing stayed pinned at `fd54aca` for both).
+
+**Panel caveat found mid-run.** `spot_answer_median` spans *every* generation, and
+a cap-hit has no `</think>` so it contributes answer_len 0. At g≈0.6 that made
+the answer median read 21.5 at step 400 and 317.5 at step 450 — the swing is
+which rollouts failed, not what the model writes. `spot_*_median_ok` (g=1 only)
+added at `3a77b27` for later runs.
+
 ## Conclusion
 
 (pending — F3 verdict)
