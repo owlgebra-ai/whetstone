@@ -54,9 +54,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from whetstone.round0 import marker_class_ids
 from whetstone.sed import SEDRegularizer, row_logits, topk_entropy
+from whetstone.round0 import read_whitelist_strings, whitelist_token_ids
 from whetstone.zpd import (
-    ALPHA_NOV_DEFAULT, GAMMA_INIT, KAPPA_DEFAULT, S_CAP_DEFAULT,
-    band_pass, sequence_normalizer,
+    ALPHA_NOV_DEFAULT, GAMMA_INIT, KAPPA_DEFAULT, REGISTER_FLOOR_DEFAULT,
+    S_CAP_DEFAULT, band_pass, register_floor_mask, sequence_normalizer,
 )
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -72,10 +73,11 @@ class Record:
 
     __slots__ = ("uid", "level", "weight", "ids", "prompt_len", "think_start",
                  "think_end", "answer_start", "answer_end", "w", "n_completion",
-                 "z", "z_floored", "masked_frac")
+                 "z", "z_floored", "masked_frac", "reg_mask", "n_floored_tokens")
 
     def __init__(self, r: dict, s: np.ndarray, gamma: float, kappa: float,
-                 alpha_nov: float, s_cap: float, floor_frac: float):
+                 alpha_nov: float, s_cap: float, floor_frac: float,
+                 whitelist_ids=frozenset(), reg_floor: float = 0.0):
         self.uid = r["_uid"]
         self.level = r["level"]
         self.weight = r["weight"]
@@ -85,16 +87,25 @@ class Record:
         self.think_end = r["think_end"]
         self.answer_start = r["answer_start"]
         self.answer_end = r["answer_end"]
-        gate, _, w = band_pass(s, gamma, kappa, alpha_nov, s_cap)
+        # Register-whitelist floor (activity 009 finding 7): think segment only.
+        self.reg_mask = (
+            register_floor_mask(self.ids, self.prompt_len, self.think_start,
+                                self.think_end, whitelist_ids)
+            if whitelist_ids and reg_floor > 0 else np.zeros(len(s), dtype=bool)
+        )
+        gate, _, w = band_pass(s, gamma, kappa, alpha_nov, s_cap,
+                               floor_mask=self.reg_mask, floor=reg_floor)
         self.w = w.astype(np.float32)           # indexed by completion offset
         self.n_completion = len(w)
+        self.n_floored_tokens = int(self.reg_mask.sum())
         z_raw = float(w.sum())
         self.z = sequence_normalizer(w, self.n_completion, floor_frac)
         self.z_floored = self.z > z_raw + 1e-9
-        self.masked_frac = float((gate < 0.1).mean())
+        self.masked_frac = float((self.w < 0.1).mean())
 
 
-def load_records(train_path: str, gates_path: str, args) -> list:
+def load_records(train_path: str, gates_path: str, args,
+                 whitelist_ids=frozenset()) -> list:
     rows = [json.loads(l) for l in open(train_path)]
     npz = np.load(gates_path)
     out, missing = [], 0
@@ -110,7 +121,8 @@ def load_records(train_path: str, gates_path: str, args) -> list:
                 f"{key}: gate array has {len(s)} entries for {n_comp} completion "
                 "tokens — the gate file was built from a different train.jsonl")
         out.append(Record(r, s, args.gamma, args.kappa, args.alpha_nov,
-                          args.s_cap, args.z_floor_frac))
+                          args.s_cap, args.z_floor_frac,
+                          whitelist_ids, args.register_floor))
     if missing:
         print(f"[data] WARNING {missing} records had no gate array and were dropped",
               flush=True)
@@ -295,6 +307,18 @@ def parse_args(argv=None):
     ap.add_argument("--alpha-nov", type=float, default=ALPHA_NOV_DEFAULT)
     ap.add_argument("--s-cap", type=float, default=S_CAP_DEFAULT)
     ap.add_argument("--z-floor-frac", type=float, default=0.25)
+    ap.add_argument("--register-card", default="configs/register_card.md")
+    ap.add_argument("--register-floor", type=float, default=REGISTER_FLOOR_DEFAULT,
+                    help="weight floor for register-card §2 tokens inside the "
+                         "think segment (activity 009 finding 7; user-ratified "
+                         "2026-08-05). 0 disables and reproduces the collapse.")
+    ap.add_argument("--sed-exempt-register", action="store_true", default=True,
+                    help="drop register tokens from the SED term. Its EMA shadow "
+                         "starts at the original checkpoint, which assigns `goal` "
+                         "~e^-40, so K2 would fight the CE floor at ~10x the "
+                         "current SED magnitude (finding 8).")
+    ap.add_argument("--no-sed-exempt-register", dest="sed_exempt_register",
+                    action="store_false")
 
     ap.add_argument("--alpha-sed", type=float, default=1.0)
     ap.add_argument("--h-pivot", type=float, default=0.6707)
@@ -334,16 +358,35 @@ def main(argv=None) -> int:
     print(f"[gates] fresh: pi_S = {gates_meta['pi_s']} (sha {gates_meta['pi_s_sha']})",
           flush=True)
 
-    recs = load_records(args.train, args.gates, args)
-    if args.limit:
-        recs = recs[: args.limit]
-    n_floored = sum(r.z_floored for r in recs)
-    print(f"[data] {len(recs)} sequences | mean masked {100*np.mean([r.masked_frac for r in recs]):.2f}% "
-          f"| Z-floor binds on {n_floored} ({100*n_floored/max(len(recs),1):.2f}%)", flush=True)
-
     tok = AutoTokenizer.from_pretrained(args.init, trust_remote_code=True)
     mclass = marker_class_ids(tok)
     marker_ids = torch.tensor(sorted(frozenset().union(*mclass.values())), device="cuda")
+
+    # Register-card §2 whitelist — the vocabulary the card SPECIFIES, which is
+    # what the floor exists to install (finding 7).
+    wl_ids = frozenset()
+    if args.register_floor > 0:
+        card = args.register_card
+        if not os.path.isabs(card):
+            card = os.path.join(os.path.dirname(os.path.dirname(
+                os.path.abspath(__file__))), card)
+        wl_ids = frozenset(whitelist_token_ids(tok, read_whitelist_strings(card)))
+        print(f"[floor] register floor {args.register_floor} on {len(wl_ids)} "
+              f"card §2 token ids, think segment only | SED exempt: "
+              f"{args.sed_exempt_register}", flush=True)
+    wl_t = torch.tensor(sorted(wl_ids), device="cuda") if wl_ids else None
+
+    recs = load_records(args.train, args.gates, args, wl_ids)
+    if args.limit:
+        recs = recs[: args.limit]
+    n_floored = sum(r.z_floored for r in recs)
+    n_reg = sum(r.n_floored_tokens for r in recs)
+    n_tok = sum(r.n_completion for r in recs)
+    print(f"[data] {len(recs)} sequences | mean masked "
+          f"{100*np.mean([r.masked_frac for r in recs]):.2f}% "
+          f"| floored register tokens {n_reg:,} ({100*n_reg/max(n_tok,1):.2f}% of "
+          f"completion) | Z-floor binds on {n_floored} "
+          f"({100*n_floored/max(len(recs),1):.2f}%)", flush=True)
 
     model = AutoModelForCausalLM.from_pretrained(
         args.init, dtype=torch.float32, attn_implementation="sdpa").cuda()
@@ -493,6 +536,13 @@ def main(argv=None) -> int:
             # spike the fp32 intermediates past the memory budget.
             t_lo, t_hi = rec.think_start - p0, rec.think_end - p0
             sed_off = torch.arange(t_lo, t_hi, device="cuda")
+            # Finding 8: the shadow is initialised from the original checkpoint,
+            # which assigns `goal` ~ e^-40. Leaving these positions in K2 would
+            # pull the student back toward that as fast as the CE floor pushes
+            # it away -- the two terms in direct opposition on the exact tokens
+            # the floor exists to install.
+            if args.sed_exempt_register and wl_t is not None:
+                sed_off = sed_off[~torch.isin(labels[sed_off], wl_t)]
             if sed_off.numel() > args.sed_max_think:
                 sel = torch.randperm(sed_off.numel(), device="cuda")[: args.sed_max_think]
                 sed_off = sed_off[sel].sort().values
