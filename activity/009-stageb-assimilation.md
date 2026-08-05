@@ -552,6 +552,87 @@ the answer median read 21.5 at step 400 and 317.5 at step 450 — the swing is
 which rollouts failed, not what the model writes. `spot_*_median_ok` (g=1 only)
 added at `3a77b27` for later runs.
 
+### Run 9 — Arm B (`goal:` stripped) COMPLETE: the refutation, measured
+
+602 steps, same seed and config as arm A. **Never emitted a single register
+marker.** Failure cycled through three modes — no boundary tags at all
+(steps 50–100, g=0.00), `<think>` opened and never closed (150–250), empty
+`<think>` with a competent answer (300) — and ended cap-hitting 95% of rollouts.
+
+| step | A think / mark / g | B think / mark / g |
+|---|---|---|
+| 100 | 490 / 0.511 / 0.80 | **0 / 0.000 / 0.00** |
+| 300 | 484 / 0.633 / 0.70 | **1 / 0.000 / 0.60** |
+| 600 | **558 / 0.788 / 0.75** | **2047 / 0.000 / 0.05** |
+
+Corpus verified clean first: **0 / 2,414 malformed**, think median 249, goal
+statements intact. The collapse is the training result, not a pipeline bug.
+
+> **Finding 11 — loss and entropy cannot distinguish a working run from a dead
+> one.** Final: CE **0.5399 (A) vs 0.5524 (B)**; SED K2 **0.16606 vs 0.16610**;
+> entropy mean **0.6456 vs 0.6381**, p80 **1.2295 vs 1.2127**. Every conventional
+> SFT signal says the two runs are equivalent and healthy. One produces a working
+> student; the other produces nothing parseable. **Only the generative panel
+> separates them**, and it separates them completely. This is why the packet
+> makes the spot-check a first-class deliverable, and it is why the original
+> collapse went unnoticed for 100 steps — CE and entropy both looked fine.
+
+### Run 10 — Arm A round 2 COMPLETE (301 steps, 41 min)
+
+Gates recomputed under the round-1 student (fingerprint asserted), fresh EMA from
+the round-1 student, 1 epoch, seed 1. EMA syncs **60 = 301 ÷ 5**, drift 2.47e-03,
+peak 28.7 GB.
+
+**The recomputed gates visibly did their job:** register-marker mean w_t fell
+**1.53 → 1.33** (the student now finds the markers less surprising, so the floor
+carries less), and SED K2 fell **0.166 → 0.048** (fresh shadow starts adjacent to
+the trainee rather than 602 steps behind).
+
+**Assimilation, on well-formed generations** (the `_ok` medians added at `3a77b27`):
+
+| | round-1 final | round-2 final | corpus |
+|---|---|---|---|
+| think (g=1 only) | 420 | **246** | **249** |
+| markers / 100 chars | 0.860 | **1.703** | ~2.0 |
+| answer leakage | 0.00 | **0.00** | — |
+
+**Think length lands within 3 tokens of the corpus median.**
+
+> **Finding 12 — the panel's g-rate was never a formatting problem.** Gate-failure
+> reasons across every round-2 spot-check are **100% `missing_think_close`** — zero
+> `empty_answer`, zero `duplicated_think_*`. The failures are rollouts that think
+> past the panel's 4,096-token cap on hard DeepMath val problems, i.e. the
+> measurement budget, not the model. The raw `think_all` median of 495 was those
+> cap-hits contributing 4,096 each; the g=1 median is 246. **F3d must be read off
+> the GSM8K eval at a 32k cap**, never off this panel.
+
+> **Finding 13 — round-2 entropy declines, then stabilises.** Peak **0.6898**
+> (step 50) → **0.6318** (step 301): −8.4% mean, −14.6% median, −8.7% p80 from
+> peak, but flat over the last ~75 steps (0.6310 / 0.6413 / 0.6324 / 0.6319 /
+> 0.6318). It reads as an equilibrium between CE fitting the corpus and SED
+> pushing back, not a collapse. Final still **2.0× the audit baseline mean, 9.5×
+> the median, 1.67× p80**.
+>
+> ⚠ Two caveats. Rounds 1 and 2 used **different control slices** (seed 0 vs 1),
+> so cross-round absolute values are loose; the within-round-2 decline is real
+> because that slice is fixed. And this is teacher-forced entropy on corpus text —
+> **F3c is decided on the student's own fresh rollouts**, not measured yet.
+>
+> **Gap owned:** SED's own diagnostics were not being logged, so whether τ̂ was
+> saturating at its 1.5 ceiling — the packet's named diagnosis for exactly this
+> decline — could not be checked. Fixed at `995b54d` (τ̂ hi/lo/mean, Δ, H_shadow,
+> plus collapse mass and fork mass at both 0.7 and 1.5 nats). Applies from the
+> control arm onward.
+
+**Ops note.** The round-1 eval was launched on spark and **abandoned at 27% with a
+14h50m ETA** — throughput had decayed to 645 tok/s. The same eval on turing runs
+at **6,800 tok/s (10×)**. CLAUDE.md's "never schedule decode-heavy generation on
+spark" is confirmed quantitatively; the earlier 1h14m estimate was an artifact of
+the easy head of the batch. Killing it left an **orphaned `VLLM::EngineCore`
+(PID 2358915, PPID 1) holding 51 GB** — activity 003 gotcha 1, reproduced — and
+`pkill -f "scripts/run_eval.py"` self-matched the ssh command line running it, so
+the orphan had to be killed by PID.
+
 ## Conclusion
 
 (pending — F3 verdict)
