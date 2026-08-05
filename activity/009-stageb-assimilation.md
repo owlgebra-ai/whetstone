@@ -322,6 +322,96 @@ Guards verified on CPU before spending GPU time:
 | `train.jsonl` edited after gates were built | **refused** — length mismatch |
 | record load | 2,414 seqs; w over 1,916,972 completion tokens, mean 1.1619, p50 0.9999, 0.75% masked, 2.05% at the novelty peak; per-problem weights all 1.0 |
 
+### Run 6 — Round 1 golden: **STOPPED at step ~225 / 602, diagnosed** (2026-08-05)
+
+Launched at `0763f8b` after a worst-case smoke (40 longest records: peak 28.1 GB
+of 32.6, drift non-zero, CE/SED trading off, EMA cadence exact). Config as the
+packet: 2 epochs, LR 2e-5, warmup 30, accum 8, α_sed 1, γ −9.2103.
+Log `/data/whetstone/runs/009/round1_golden.log`; checkpoints step0050–0200 and
+10 metric rows preserved.
+
+**The run was stopped because it was provably going to fail for a now-understood
+reason.** Trajectory of the generative spot-check (20 held-out val problems,
+greedy, 2,048 cap):
+
+| step | think median | answer median | g-rate | marker density |
+|---|---|---|---|---|
+| 0 (original) | 2,047 (capped) | 0 | 0.20 | 0.164 |
+| 100 | **1** | 434.5 | 0.95 | **0.0** |
+| 200 | **1** | 279.0 | 0.80 | **0.0** |
+
+The student emits `<think>\n</think>` — an **empty scratchpad** — and then a
+competent answer. Note the answer median at step 100 (434.5) is close to the
+corpus's 475: **the answer segment assimilated correctly and the think segment
+collapsed.** Not recovering — g fell 0.95 → 0.80 between the two readings.
+
+Entropy meanwhile rose and held far above the audit baseline (control-slice mean
+0.329 → 0.557, median 0.0125 → 0.166, p80 0.649 → 1.050), so SED is doing its job;
+this is not an entropy failure.
+
+> **Finding 7 — the ZPD band-pass cannot install a register whose entry token is
+> outside the student's reach, and no γ fixes it.**
+>
+> Weight by position inside the think block, over all 2,414 traces:
+>
+> | think position | most common token | S mean | w mean | masked |
+> |---|---|---|---|---|
+> | 0 | `\n` (100%) | 0.000 | 0.9999 | 0.0% |
+> | **1** | **`goal` (100%)** | **40.082** | **0.0000** | **100.0%** |
+> | 2 | `:` (100%) | 1.983 | 1.9723 | 0.0% |
+> | 3 | ` total` (14%) | 8.738 | 0.9517 | 33.2% |
+>
+> **Every one of the 2,414 traces opens `<think>` `\n` `goal` `:`, and position 1
+> is masked in 100.0% of them.** The single highest-leverage token in the corpus —
+> the one that starts every register trace — contributes nothing to the loss. The
+> student is never taught to emit it, so at generation time the most probable
+> continuation after `<think>\n` is `</think>`.
+>
+> The pattern is **line-initial markers**, not markers in general:
+>
+> | marker | n | S mean | w mean | masked |
+> |---|---|---|---|---|
+> | `goal` | 2,424 | 39.96 | 0.005 | **99.7%** |
+> | `chk` | 1,828 | 21.29 | 0.033 | **98.4%** |
+> | `⇒` (bare, line-initial) | 2,424 | 13.55 | 0.535 | **58.2%** |
+> | ` ⇒` (mid-line) | 5,654 | 3.61 | 1.716 | 3.7% |
+> | ` →` (mid-line) | 2,827 | 3.03 | 1.656 | 2.9% |
+> | `let` | 1,603 | 9.56 | 1.449 | 22.5% |
+>
+> Mid-line symbol *usage* is learnable; the line-opening *keywords* that carry the
+> register's skeleton are not.
+>
+> **γ is not the knob** (γ sweep against `goal`, S mean 39.9):
+>
+> | γ | `goal` w mean | corpus masked | corpus w mean |
+> |---|---|---|---|
+> | −9.2103 (pinned) | 0.010 | 1.54% | 1.215 |
+> | −20 | 0.022 | 0.38% | 1.299 |
+> | −30 | 0.023 | 0.30% | 1.306 |
+> | −42 | 2.388 | **0.00%** | 1.313 |
+>
+> γ must reach ≈ −42 before `goal` carries weight, and by then the gate is
+> **entirely off** — which is v1's Diagnosis-#1 failure restored. There is no γ
+> that installs the register and still gates unreachable tokens. The packet's
+> instruction not to slide γ mid-run was correct for a reason it did not name.
+>
+> ⚠ **This corrects finding 3.** "Structural markers carry above-average weight
+> (mean w_t 1.323)" is arithmetically right and diagnostically wrong: that class
+> pools 5,654 mid-line ` ⇒` at w 1.72 with 2,424 line-initial `goal` at w 0.005,
+> and the high-count majority swamps the load-bearing minority. **A mean over a
+> marker class is the wrong statistic**; the entry tokens need their own row. The
+> packet's stated tripwire — "marker-token mean w_t stays ≈ 0 through round 1" —
+> would never have fired here.
+
+> **Finding 8 — SED compounds it, and any fix must address both terms.** SED
+> distills the student toward its EMA shadow, which is initialised from the
+> original checkpoint and therefore also assigns `goal` ≈ e^−40. K2 =
+> ½(log π_θ − log π_φ,τ̂)², so if CE were to lift log π_goal from −40 to −3, K2 on
+> that token becomes ½(37)² ≈ 684 — against a current whole-sequence SED mean of
+> 0.24. **SED actively holds the register entry tokens at zero probability.**
+> Ungating them in the CE term alone would put the two terms into direct
+> opposition at ~10× the current SED magnitude.
+
 ## Conclusion
 
-(pending — F3 verdict)
+(pending — F3 verdict; blocked on the finding-7 design decision)
