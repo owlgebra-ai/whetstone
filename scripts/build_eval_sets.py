@@ -291,13 +291,25 @@ def main(argv=None):
             args.standard_eval_from, args.out_dir, args.standard_eval_n, args.seed
         )
 
+    # Merge, never overwrite: this script is normally run for ONE suite at a time
+    # (P6/activity 009 added gsm8k_test to a directory holding seven already-built
+    # suites). A plain dump would erase the pinned revisions of every suite not
+    # named on this command line.
     stats_path = os.path.join(args.out_dir, "eval_stats.json")
     os.makedirs(args.out_dir, exist_ok=True)
+    merged: dict[str, dict] = {}
+    if os.path.exists(stats_path):
+        try:
+            with open(stats_path) as f:
+                merged = json.load(f)
+        except (OSError, json.JSONDecodeError) as e:  # corrupt sidecar must not lose the run
+            print(f"[eval] WARN: could not read {stats_path} ({e}); starting fresh", flush=True)
+    merged.update(summary)
     with open(stats_path, "w") as f:
-        json.dump(summary, f, indent=2, ensure_ascii=False)
+        json.dump(merged, f, indent=2, ensure_ascii=False)
         f.write("\n")
 
-    print("\n[done] eval suites:")
+    print("\n[done] eval suites (this run):")
     for k, v in summary.items():
         note = v.get("error") or v.get("grading") or v.get("verifier") or ""
         print(f"  {k:18s} {v.get('rows', 0):6d}  {note}")
