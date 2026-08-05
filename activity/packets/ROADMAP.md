@@ -53,6 +53,8 @@ Only **P0–P4 are written in full detail**. P5–P7 are deliberately outlines: 
 
 ## P6 — Stage B: learnability-gated, entropy-preserving assimilation (**UNBLOCKED — F2 passed, activity 008**)
 
+> **Full packet written: [P6-stage-b-assimilation.md](P6-stage-b-assimilation.md)** (2026-08-05). The outline below is context; the packet is binding.
+
 > ### The corpus is ready. **Designated input (user decision, 2026-08-05):**
 > `/data/whetstone/corpora/stagea_golden/golden_faithfulness.jsonl` —
 > **2,414 problems, one certified trace each**, 750,087 think tokens.

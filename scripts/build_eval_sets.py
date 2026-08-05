@@ -15,11 +15,14 @@ line — pinned revisions and grading mode live in the sidecar `<suite>.meta.jso
     }
 
 Suites (design §12.7): MATH-500, AMC23, MinervaMath, AIME24, AIME25 (math) plus
-GPQA-Diamond and HumanEval (cross-domain). Golds are stored **verbatim** — the
+GPQA-Diamond and HumanEval (cross-domain), and **GSM8K test** — the validation
+tier of the ratified eval plan (ROADMAP "Eval plan", 2026-08-02): the suite that
+picks checkpoints and settles hyperparameters, kept off the headline tables so
+repeated peeking cannot overfit them. Golds are stored **verbatim** — the
 deterministic verifier normalizes at compare time; reformatting here would shift
 measured accuracy.
 
-Two suites are special:
+Three suites are special:
   * **GPQA-Diamond** is multiple choice. Choices are deterministically shuffled
     (seed 0, per record), the prompt carries the lettered options and the
     "answer with the letter in \\boxed{}" instruction, and `ground_truth` is the
@@ -28,6 +31,10 @@ Two suites are special:
   * **HumanEval** cannot be graded by `whetstone.verify` (needs code execution).
     Records carry `verifier: "code-exec"` and `grading: "code-exec-pending"`, and
     the sidecar repeats it, so nobody reports verifier numbers on it by accident.
+  * **GSM8K** ships the gold *inside* the reference derivation, after a `####`
+    marker on the last line. Only that tail is the ground truth — see
+    `_norm_gsm8k`. Contamination against the train pool was pre-cleared by
+    activity 002 Run 5 (0 hits vs GSM8K test).
 
 `--standard_eval_from <val.jsonl>` builds Part 4's `standard_eval_300` (300 rows
 sampled from the val pool, stratified by level, seed 0). That file is
@@ -60,7 +67,14 @@ SUITES = {
     "aime25":       ("math-ai/aime25",          None,                "test",  "563bb8404243c5f09de6ec262f2db674fe5bce9b"),
     "gpqa_diamond": ("Idavidrein/gpqa",         "gpqa_diamond",      "train", "633f5ee89ab8ad4522a9f850766b73f62147ffdd"),
     "humaneval":    ("openai/openai_humaneval", "openai_humaneval",  "test",  "7dce6050a7d6d172f3cc5c32aa97f52fa1a2e544"),
+    # validation tier — added by P6/activity 009 (resolved 2026-08-05); 1,319 rows
+    "gsm8k_test":   ("openai/gsm8k",            "main",              "test",  "740312add88f781978c0658806c59bc2815b9866"),
 }
+
+# Row counts asserted at build time. A silent row-count change means the pinned
+# revision moved (it cannot) or the loader changed its filtering (it can) — either
+# way the suite is no longer the one the baseline card was measured on.
+EXPECTED_ROWS = {"gsm8k_test": 1319}
 
 
 def _first(rec: dict, *names: str):
@@ -148,9 +162,41 @@ def _norm_humaneval(suite: str, rec: dict, idx: int) -> dict:
     }
 
 
+def _norm_gsm8k(suite: str, rec: dict, idx: int) -> dict:
+    """GSM8K: the gold is the tail after the `####` marker on the answer's last line.
+
+    The rest of `answer` is the reference derivation, complete with the dataset's
+    ``<<48/2=24>>`` calculator annotations. Handing that whole string to the
+    verifier would grade a number against a paragraph, so the marker split is not
+    cosmetic — it is the difference between a working suite and a 0% one.
+
+    The tail is stored **verbatim** (stripped only), per this module's rule.
+    GSM8K writes thousands separators (``1,000``) and `verify._normalize` already
+    deletes commas at compare time, so normalizing here would change nothing but
+    the provenance of the number.
+    """
+    question = _first(rec, "question", "problem")
+    answer = _first(rec, "answer", "solution")
+    if question is None or answer is None or "####" not in str(answer):
+        return {}
+    gold = str(answer).rsplit("####", 1)[1].strip()
+    if not gold:
+        return {}
+    return {
+        "_uid": f"{suite}:{idx}",
+        "prompt": norm_text(question),
+        "ground_truth": gold,
+        "level": 0,  # GSM8K has no difficulty annotation
+        "suite": suite,
+        "subject": "grade-school math",
+        "verifier": "whetstone.verify",
+    }
+
+
 NORMALIZERS = {
     "gpqa_diamond": _norm_gpqa,
     "humaneval": _norm_humaneval,
+    "gsm8k_test": _norm_gsm8k,
 }
 
 
@@ -170,6 +216,13 @@ def _pull(suite: str) -> tuple[list[dict], dict]:
         else:
             skipped += 1
     print(f"[eval] {suite}: {len(rows)} problems ({skipped} skipped)", flush=True)
+    want = EXPECTED_ROWS.get(suite)
+    if want is not None and len(rows) != want:
+        raise RuntimeError(
+            f"{suite}: expected {want} rows at revision {rev[:8]}, got {len(rows)} "
+            f"({skipped} skipped). Refusing to write a suite that is not the one "
+            f"the eval plan pinned."
+        )
     meta = {
         "suite": suite, "repo": repo, "config": config, "split": split,
         "revision": rev, "rows": len(rows), "skipped": skipped,
