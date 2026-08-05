@@ -475,6 +475,37 @@ The think block is alive and register markers are being emitted (0.164 at step 0
 > positional floor on the first think tokens, which is a strictly larger change
 > than the card-token floor already ratified.
 
+> **Finding 10 — a natural opener (`goal:` → `Okay,`) buys a free door and pays
+> for it in every room.** Third user hypothesis (2026-08-05), and the sharpest
+> test of finding 9: if the ~40 nats is positional, hand the model the opening it
+> natively writes and the entry point should cost nothing.
+>
+> It costs nothing — and the wall moves one slot later:
+>
+> | corpus | pos 1 | pos 2 | pos 3 | whole think block masked | think S mean |
+> |---|---|---|---|---|---|
+> | `goal:` | `goal` **40.082**, 100% masked | `:` 1.983 | ` total` 8.738, 33% | **1.66%** | 1.168 |
+> | stripped | `total` **35.876**, 100% masked | 5.026, 8% | 2.265, 2% | 1.87% | 1.195 |
+> | **`Okay,`** | `Okay` **0.001, 0% masked** | `,` 0.000, 0% | ` total` **30.554, 100% masked** | **3.39%** | **1.505** |
+>
+> Two results, pulling opposite ways:
+>
+> 1. **Conditioning on a natural opener genuinely reduces the entry cost** — the
+>    first *content* token goes 40.082 → 35.876 → **30.554** across the three. A
+>    real 24% effect, and direct confirmation that the cost is contextual rather
+>    than lexical.
+> 2. **But it makes the whole trace worse.** Block-wide masking nearly doubles
+>    (1.66% → 3.39%) and mean think surprisal rises 1.168 → 1.505. `Okay,` primes
+>    the model for its own verbose continuation, so every terse register line that
+>    follows is *more* surprising than it would have been after `goal:`. The
+>    opener buys one cheap token and taxes the ~250 that follow.
+>
+> **Ranking on masking: `goal:` (1.66%) < stripped (1.87%) < `Okay,` (3.39%).**
+> The original corpus plus the whitelist floor is the best of the three, and the
+> floor is the only intervention that addresses the entry point without making the
+> rest of the trace harder. All three corpora and their gate files are kept under
+> `/data/whetstone/corpora/stageb/{golden,golden_nogoal,golden_okay}/`.
+
 ## Conclusion
 
 (pending — F3 verdict)
