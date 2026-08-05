@@ -374,6 +374,21 @@ def main() -> int:
       os.fsync(jf.fileno())
     jf.close()
 
+    # In rebuild mode nothing goes through resolve_problem, so the exhausted
+    # list has to be derived from the log instead: a problem is exhausted when
+    # every candidate it has was judged and none passed. Without this the
+    # rebuild silently reports zero exhausted problems — and that list is a
+    # deliverable (it is Stage-C rescue's clientele, the same role `unserved`
+    # plays for selection).
+    if args.rebuild_only:
+        for uid, cs in by_uid.items():
+            if uid in resolved:
+                continue
+            keys = [(uid, c["candidate_idx"], c.get("gen_round", 1))
+                    for c in rank_candidates(cs)[:args.max_attempts]]
+            if keys and all(k in judged for k in keys):
+                exhausted.append(uid)
+
     # Re-attach problems that were already resolved on a previous run.
     for uid in resolved:
         if uid in by_uid and uid not in {g["_uid"] for g in golden}:
