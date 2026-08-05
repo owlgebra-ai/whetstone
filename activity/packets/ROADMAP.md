@@ -7,7 +7,7 @@ P0 env ──► P1 data ──► P2 preconditions ──► P3a register bake-
                                             PASS ◄────────────────────────────┘──► FAIL → LoRA-scorer packet
                                              │
                                              ▼
-                 P5 Stage A (32B best-of-K select) ══► F2 ──► P6 Stage B (assimilation) ══► F3
+                 P5 Stage A (32B best-of-K select) ══► F2 ✅ PASS (008) ──► P6 Stage B ══► F3
                                                                         │
                                                                         ▼
                                               P7 Stage C (segment-routed DAPO) ══► F4
@@ -88,6 +88,100 @@ Suite roles — three tiers with different touch frequencies, so headline number
 - Small suites (AIME 30, AMC 40) are noisy — never quote them without the ± std, never subsample them.
 - **TODO (next executing agent, ~30 min on spark):** `gsm8k_test.jsonl` is not yet built — add the suite to `build_eval_sets.py` (`openai/gsm8k` config `main`, split `test`, same schema, pin revision) and emit to `/data/whetstone/eval/`. Contamination pre-cleared: activity 002 Run 5 checked the train pool against GSM8K-test — 0 hits.
 - Baselines (SCA / DeepCompress / prompted-compressor arms) run the identical protocol from the same checkpoint — numbers are only comparable inside the same tier and protocol.
+
+## Facts pinned by activity 008 (P5 / **F2 gate**) — binding on all later packets
+
+- **F2 PASSES on all four sub-gates.** 33,640 drafts over 4,000 problems →
+  **11,954 selected traces over 3,994 problems** at
+  `/data/whetstone/corpora/stagea_selected/selected.jsonl`, handoff note in
+  `STAGE_B_HANDOFF.md`. **P6 is unblocked.**
+  F2a selected R_acc **100%** (all-drafts 98.72%); F2b `verify_kept` **99.2%**
+  and `branch_kept` **40.5%** per problem with **100% capture efficiency**;
+  F2c **70.7% faithful / 9.9% wrong** on selected winners; F2d dashboards in
+  `activity/assets/008/`.
+- **Generation parameters are NOT optional and are pinned by measurement.**
+  (i) The think block **must be prefilled** with `<think>\ngoal:` — an
+  instruction to write in the register reaches the answer channel, not the
+  scratchpad (0.11 vs 2.10 markers/100 char, `goal` opening 1 trace in 38).
+  (ii) Generation **must be two-phase** with `</think>` imposed as a stop —
+  prefilled, the model imitates the card exemplars to their end and 48% of
+  drafts never close the block. (iii) K=8, T=0.8, top-p 0.95, think budget
+  2,048, **answer budget 2,048** (1,024 cap-outs hit 15.4% of level 6 and 0% of
+  level 1 — an artifact biasing against the hard tier; the *think* cap is signal
+  and stays).
+- **G_spike does NOT detect asserted-crux traces — it prefers them.** Measured
+  2.76e-05 vs 1.48e-05 (β=10) for assert-flagged vs derived, surviving a
+  restriction to level ≥7, and corroborated independently by the GLM judge.
+  Design §3.2's "a hallucinated or unsupported compact step is, by construction,
+  a spike" is **false on this corpus**: hand-waving is fluent and fluency is what
+  the meter reads. **Binding on P7** — Stage C puts a G_spike-like term inside an
+  optimiser, where Goodhart pressure stops being one-shot. Keep it last in any
+  lexicographic rule and never let it outrank a structural criterion.
+- **Conditioning drives faithfulness more than difficulty does.** Hard band
+  `gold+trace` **57.1% faithful / 17.7% wrong** vs `gold`-only **10.5% / 73.7%**
+  (n=241, z=5.27, p<1e-6). Given the answer but not the reasoning on a hard
+  problem, the teacher invents a derivation. Level 1 is 57.4% gold-only and
+  still 94.9% faithful, so this is "asked to derive what it cannot derive", not
+  conditioning per se. **Acted on:** conditioning cap raised 12,288 → **23,000**,
+  205 problems regenerated as `gen_round` 2 (167 hard-band), `gold+trace`
+  61.5% → **66.6%**.
+- **Structural retention is clustered per PROBLEM, so K is not a lever for it.**
+  P(≥1 branch-keeping draft) = **35.5%** at K=8 where independence predicts
+  75.3%; the distribution is U-shaped (64.5% of problems at zero, 5.5% at all
+  eight). **Activity 006's "~70% at K=8, ~91% at K=16" is retired.** Temperature
+  is a modest lever — 52.1% → 62.5% at T=1.0 — but unproven (McNemar p=0.227,
+  n=47); settling it needs 150–250 paired problems.
+- **Register adherence, by contrast, IS well mixed across K** (98.6% of problems
+  have an in-register candidate, 100% at level 9 where the per-draft rate is
+  42.9%), so best-of-K fixes it for free. It is the **top** selection criterion.
+- **The teacher abandons the register on hard problems** — 54% of level-9 traces
+  read as prose, markers/100char 3.28 → 0.71 from level 1 to 9, `chk`/`✓`
+  retention 97.2% → 54.4%. The card's exemplars are levels 1,1,3,5,6; a hard
+  exemplar is the designated fix and was **deliberately not applied** (user
+  decision 2026-08-04 — the card is ratified and deserves its own bake-off).
+- **Compression is flat in absolute terms.** Compact output stays 300–434 tokens
+  while verbose input grows 7.5× across levels, so the rising ratio (8.6× at L1
+  → 26.4× at L9, 12.4× overall) is **truncation, not compression** — the same
+  levels that show prose reversion and audit collapse. Overall ratio 0.081, far
+  less aggressive than the 1.7B one-shot (0.043) or GLM (0.030).
+- **Level 9 is the weak tier on every axis measured**: 23.6% faithful / 48.6%
+  wrong on winners, 54% prose, 26× compression, 58.4% gold-only. Its 250 problems
+  are 6% of the corpus — down-weight it in Stage B or take it only from the
+  golden subset.
+- **The ZPD histogram exists** on every score record (`think_surprisal_hist` +
+  `surprisal_bin_edges`), answering activity 006 open item 2: 72.5% of teacher
+  think tokens below 0.5 nats, γ=1 masks 20.8%, γ=4 masks 6.4%. **⚠ Measured
+  under `scorer_v1`, which has had 91% of the register tax removed — Stage B's
+  gate runs under the ORIGINAL checkpoint, so these are a LOWER BOUND and P6
+  must re-measure before pinning γ.**
+- **Golden corpus — attested deviation.** At user direction the GLM judge was
+  promoted from evaluator to filter:
+  `/data/whetstone/corpora/stagea_golden/`, **2,435 problems** with one
+  certified-faithful trace each (1,618 faithfulness rubric, 817 self-contained),
+  174 exhausted, 1,360 unjudged when quota expired. This overrides
+  `faithfulness_audit.py`'s "a judge verdict must never filter training data".
+  **The unfiltered corpus is the control arm and must not be deleted.** 93.3% of
+  fully-judged problems yield a faithful trace against a 70.7% per-winner rate —
+  the K=8 retry walk is what buys that.
+- **Audit sampling has two distinct denominators and they differ by 26 pts.**
+  Pooling every judgment gives 44.3% faithful; the per-problem winner rate is
+  **70.7%**. The golden filter judges a later candidate only when the previous
+  failed, so pooled rates measure *the search*, not the corpus. Any future
+  audit number must state its population.
+- **Judge quota is the binding constraint on any GLM-filtered work**, not GPU.
+  Windows yielded 2,442 / 2,524 / 371 judgments and depleted. All judge tooling
+  must checkpoint per judgment and support a zero-API rebuild
+  (`golden_filter.py --rebuild_only`).
+- **Throughput:** 32B-NVFP4 on one 5090 at concurrency 16 runs **~45–48
+  drafts/min** two-phase (KV cache 64,224 tokens, 93% peak — 16 is the ceiling,
+  not a preference). 32,000 drafts ≈ 10.4 h. Scoring on spark is ~22× faster
+  than generation, so the packet's queue-depth contingency is dead letter.
+  Re-conditioning ran at **15/min** — long-trace problems prefill 3× slower, so
+  size such jobs on *their* traces, not the corpus average.
+- **`gen_round` is now part of the resume key** in generation, scoring and
+  selection. A re-generation reuses `(uid, candidate_idx)`, so a two-field key
+  makes the whole job a silent no-op. Selection keeps only the highest round
+  present per problem (1,201 drafts superseded, 0 problems mixing rounds).
 
 ## Facts pinned by activity 007 (P4 / **F1 gate**) — binding on all later packets
 

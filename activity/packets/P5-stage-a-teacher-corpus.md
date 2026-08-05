@@ -1,6 +1,6 @@
 # P5 — Stage A: teacher corpus by generate-and-select (frozen Qwen3-32B, best-of-8)
 
-STATUS: in-progress (activity 008)
+STATUS: done (activity 008) — **F2 PASS**
 MACHINES: turing (32B generation server + client + CPU verification); spark (scorer_v1 G_spike scoring); GLM API (rolling audit)
 DEPENDS ON: P4 done (activity 007 — F1 passed, `scorer_v1` frozen + serving); design decision 006 (frozen 32B teacher, generate-and-select)
 BLOCKS: P6 (Stage B needs this corpus); the Stage-C rescue loop reuses this packet's generation machinery
