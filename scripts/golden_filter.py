@@ -225,10 +225,23 @@ def main() -> int:
     print(f"[resume] {len(judged)} judgments on disk, {len(resolved)} problems "
           f"already resolved")
 
-    todo = [u for u in by_uid if u not in resolved]
+    # Order by FEWEST prior judgments, so untouched problems go first.
+    # Under a constrained judge quota the objective is unique problems per
+    # token, and the two populations differ sharply: a never-judged problem
+    # resolves in ~1.8 judgments, while a partially-judged one has already had
+    # its best candidates rejected and is disproportionately a hard case headed
+    # for exhaustion. Corpus order mixes them and spends the window on the
+    # expensive tail.
+    prior = Counter()
+    for (uid, _c, _r) in judged:
+        prior[uid] += 1
+    todo = sorted((u for u in by_uid if u not in resolved),
+                  key=lambda u: (prior[u], u))
     if args.limit:
         todo = todo[:args.limit]
-    print(f"[work] {len(todo)} problems to resolve")
+    fresh = sum(1 for u in todo if prior[u] == 0)
+    print(f"[work] {len(todo)} problems to resolve — {fresh} never judged "
+          f"(these go first), {len(todo) - fresh} partially judged")
 
     jf = open(args.judgments, "a", buffering=1)
     lock = threading.Lock()
