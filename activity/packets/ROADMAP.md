@@ -29,7 +29,7 @@ Only **P0–P4 are written in full detail**. P5–P7 are deliberately outlines: 
 > keep the best. Gated on the `G_spike` × branch-retention correlation check in
 > activity 006 — the reward may select *against* the property the decision buys.
 
-## P5 — Stage A: teacher best-of-K selection (**UNBLOCKED — expand into a full packet next**)
+## P5 — Stage A: teacher best-of-K selection (**DONE — activity 008, F2 PASS.** Outline below is historical; see the 008 facts block above)
 
 > **F1 passed on its design question (activity 007): the calibration band exists.**
 > Two binding inputs from that run:
@@ -51,7 +51,20 @@ Only **P0–P4 are written in full detail**. P5–P7 are deliberately outlines: 
 - **Gate F2:** symbol density plateaus; bimodality resolves terse; teacher R_acc within 3 pts of prompted baseline; spot-check ≥90%. F2 fail with F1 passed → (λ,β) grid + budget schedule, do NOT touch Stage B.
 - Output: teacher checkpoint + K=4 T=0.8 verifier-filtered corpus over the full pool.
 
-## P6 — Stage B: learnability-gated, entropy-preserving assimilation (draft outline; expand after F2)
+## P6 — Stage B: learnability-gated, entropy-preserving assimilation (**UNBLOCKED — F2 passed, activity 008**)
+
+> **The corpus is ready.** Unfiltered:
+> `/data/whetstone/corpora/stagea_selected/selected.jsonl` (11,954 traces over
+> 3,994 problems) — read `STAGE_B_HANDOFF.md` in that directory first.
+> Judge-filtered alternative: `/data/whetstone/corpora/stagea_golden/` (2,435
+> problems, one certified-faithful trace each). **Keep both** — the filtered one
+> carries an attested external-judge deviation and the unfiltered one is its
+> control arm.
+> Three binding inputs from 008: weight **per problem**, never per trace
+> (`n_kept`); **re-measure the ZPD γ histogram under the ORIGINAL checkpoint**
+> (008's is under `scorer_v1`, which has 91% of the register tax removed, so it
+> is a lower bound); and treat **level 9 as a known-weak tier** (23.6% faithful,
+> 48.6% wrong on winner traces).
 
 - Design §4. Student = fresh copy of the *original* checkpoint. No register card in its prompt — the register enters weights here only.
 - ZPD band-pass weights `w_t = σ(κ(log π_S(τ_t) − γ)) · (1 + 0.5·min(S_t, 4))`; **γ from the measured student-on-teacher-corpus logprob histogram**; precompute w_t offline per corpus refresh (scorer pass on spark), store in the training JSONL.
