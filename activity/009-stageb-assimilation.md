@@ -1,10 +1,10 @@
 # 009 — P6 Stage B: assimilation SFT (ZPD band-pass + SED) and the F3 gate
 
 - **Packet:** [packets/P6-stage-b-assimilation.md](packets/P6-stage-b-assimilation.md)
-- **Status:** in-progress
+- **Status:** done — **F3 FAIL**
 - **Machine(s):** turing (baseline evals, training), spark (gate scoring), mac (code)
-- **Code commit(s):** `b9ec970` → `7ec4859` (running)
-- **Started / finished:** 2026-08-05 → —
+- **Code commit(s):** `b9ec970` → `995b54d`
+- **Started / finished:** 2026-08-05 → 2026-08-05
 
 ## Goal
 
@@ -633,6 +633,141 @@ the easy head of the batch. Killing it left an **orphaned `VLLM::EngineCore`
 `pkill -f "scripts/run_eval.py"` self-matched the ssh command line running it, so
 the orphan had to be killed by PID.
 
+### Run 11 — F3 evaluation: **F3 FAILS**
+
+Full-protocol evaluation proved impractical: both checkpoints ran **13–17 h ETAs**
+on turing at N=8/32k, against the baseline's 1 h 49 m. Cause measured below
+(finding 14). Screening runs used instead — **200 problems × K=2, full sampling
+protocol otherwise**, and the subset was validated rather than assumed.
+
+**Subset validity.** GSM8K carries no level annotation (every row level 0), so the
+check is the baseline's own accuracy on the identical 200: **90.62% ± 0.52 vs
+90.49% ± 0.25 on the full 1,319 — a +0.14 pt bias against a ±4.04 pt binomial CI
+at n=200.** Think median 1,540 vs 1,477 and answer median 291 vs 288, i.e. if
+anything marginally harder. Prompt length matches (mean 242 vs 239). The subset
+misses the extreme gold-magnitude tail (max 95,200 vs 2,880,000), which cannot
+move a 23-point gap. **Comparisons below use 90.62%, the subset baseline.**
+
+| | Pass@1 as-scored | Pass@1 strict | think | answer | cap-hit | g-rate |
+|---|---|---|---|---|---|---|
+| **baseline** (same 200) | **90.62 ± 0.52** | **90.19** | 1,540 | 291 | 0.00% | 100.0% |
+| **round 1** | **67.25 ± 0.35** | **65.00** | **215** | 180 | 3.25% | 94.25% |
+| **round 2** | **63.50 ± 1.41** | **59.75** | **173** | **19** | 3.50% | 96.25% |
+
+### **F3 VERDICT: FAIL**
+
+| gate | bar | round 1 | round 2 | |
+|---|---|---|---|---|
+| **F3a** accuracy | within 1 pt (≥89.62%) | **67.25% (−23.4)** | **63.50% (−27.1)** | **FAIL** |
+| **F3b** think | ≤770 tokens | 215 ✓ | 173 ✓ | **PASS** |
+| **F3b** answer | in band around 291 | 180 (−38%) ✓ | **19 (−93%)** ✗ | r1 pass / r2 **FAIL** |
+| **F3c** entropy | above audit baseline | not measured on fresh rollouts | | **UNMEASURED** |
+| **F3d** form | g ≥ 99% | **94.25%** | **96.25%** | **FAIL** |
+
+**Round 1 is the better checkpoint on every axis that matters** — 3.75 pts more
+accurate, answers intact at 180 tokens against round 2's collapse to 19. Round 2
+compressed further and adopted the register harder (markers 0.79 → 1.70) and paid
+for both in accuracy. **The packet's two-round prescription is contraindicated by
+this run: round 2 is strictly worse.**
+
+Compression itself worked: think 1,540 → 215 is **7.2×**, far past F3b's bar. The
+stage compresses; it does not preserve accuracy.
+
+> **Finding 14 — the register has no backtracking escape hatch, and that is what
+> the degenerate loops are.** 3.25–3.5% of generations never emit `</think>` and
+> run to the full 32,768-token cap. **Those 3.5% consume 77.7% of the decode
+> budget** (458,752 of 590,387 tokens; mean tokens/generation 1,476 with them,
+> 341 without) — the entire cause of the 13–17 h evals.
+>
+> Classification is unambiguous **degenerate repetition**, in three modes, all
+> opening correctly in register and none ever closing:
+> * **announce-but-never-execute (8/14)** — `let's find the total number of
+>   kittens from both cats` repeated **2,729 times**, byte-identical
+> * **runaway `chk:` chain (3/14)** — a *single line* of 35,085 characters,
+>   `chk: 3·60=180 ✓; 0.5·30=15 ✓; …` cycling with period 42, 2,506 `✓`
+> * **degenerate `case N:` enumeration (3/14)** — reached `case 713:`, every body
+>   byte-identical
+>
+> **`Wait`/`wait` appears zero times across all 14.** The compression stripped the
+> backtracking token a thinking model uses to break out of a bad line. The card
+> teaches `goal:`, `⇒`, `chk:`, `case` and nothing meaning *"this isn't working,
+> back up"*. Consistent with everything else measured: the loops fire on **hard**
+> problems (surviving sibling correct 29% vs 67% on clean), are **stochastic not
+> problem-determined** (0/200 problems had all K fail; 14 observed vs 13.8
+> expected under independence), and are **near-absorbing** (~26% escape).
+> **This is a register-design finding and it belongs to P3a/the card, not to
+> Stage B's loss.**
+>
+> The other 96% are clean: g=1, leakage 0.0%, and the register does exactly what
+> it was designed to do.
+
+> **Finding 15 — `verify.py`'s suffix fallback inflates degenerate models 14×
+> more than the baseline.** `verify_response` ends its cascade with
+> `npred.endswith(ngold)` / `ngold.endswith(npred)`, so **gold `200` with
+> prediction `0` grades correct**, as do gold `90`/pred `0` and gold `2`/pred
+> `42`. Separately `_strip_think` **falls back to the whole text** when
+> `</think>` is absent, so a runaway generation has its entire scratchpad mined
+> for `\boxed{}` — one candidate was graded correct on the extracted string
+> `"let u = number of photographs in Jamal's phone = 6"`.
+>
+> Measured inflation: **baseline +0.27 pts (29 / 10,552) vs round-2 student
+> +3.75 pts (15 / 400) — a 14× difference in rate.** The leniency systematically
+> rewards exactly the degeneracy this student has, so it **narrows** the measured
+> gap; strict grading widens it from 23.4 to 25.2 pts (round 1) and 27.1 to 30.4
+> (round 2).
+>
+> **`verify.py` was NOT modified** — CLAUDE.md marks it kept-unchanged, leniency
+> belongs in `whetstone/reward/`, and altering it would retroactively move P5's
+> F2 numbers. But every figure this project quotes is affected, the baseline card
+> included (90.49% → 90.21% strict on the full suite). **P8 owns the decision;
+> until then report both.**
+
 ## Conclusion
 
-(pending — F3 verdict)
+**F3 FAILS.** Stage B assimilates the register and compresses think length 7.2×,
+with entropy restored rather than collapsed — and loses **23–25 accuracy points**
+doing it. The gate needed 1.
+
+What is established:
+
+1. **The ZPD band-pass cannot install a specified register unaided.** Its entry
+   token is unreachable by construction, no γ fixes it, and deleting or
+   re-dressing the token does not help because the cost is **positional**
+   (findings 7, 9, 10). The register-card whitelist floor is the working fix and
+   is the only one of three tested that works.
+2. **Two rounds are worse than one.** Round 2 is worse on accuracy, answer length
+   and entropy. The packet's prescription should be revised to a single round
+   pending evidence otherwise.
+3. **The accuracy loss is not primarily the loops.** They are 3.5% of generations;
+   the gap is 23–25 points. Compressing 1,540 think tokens to 215 costs the
+   reasoning itself. **This is the finding for P7/design review.**
+4. **The register lacks a backtracking primitive**, and that omission is
+   sufficient to explain the non-terminating tail (finding 14). A card revision
+   adding an explicit backtrack marker is the indicated experiment, and the card
+   deserves its own bake-off (the 008 precedent).
+5. **Loss and entropy cannot detect any of this** (finding 11). Only generative
+   evaluation can.
+
+**Next packet should not proceed to P7.** F3's accuracy floor is the gate that
+matters and it is missed by 23 points, not by a margin that a hyperparameter
+sweep closes.
+
+### Artifacts
+
+| what | where |
+|---|---|
+| baseline card | `/data/whetstone/eval/baselines/qwen3-1.7b-original/CARD.md` |
+| round-1 student (**best**) | `/data/whetstone/ckpt/stageb/golden/round1/final` |
+| round-2 student | `/data/whetstone/ckpt/stageb/golden/round2/final` |
+| arm B (refuted) | `/data/whetstone/ckpt/stageb/golden_nogoal/round1/final` |
+| screening evals | `/data/whetstone/runs/009/_diag_r1/`, `_diag_r2/` |
+| corpora + gates (4 variants) | `/data/whetstone/corpora/stageb/{golden,golden_nogoal,golden_okay,control}/` |
+
+### Not done
+
+- **Control arm (Part 6)** — corpus and gates built (11,954 traces / 3,994
+  problems, weight sum 3,994.0), never trained. With F3 failing on the golden
+  corpus by 23 points, judge-filtering is not the binding constraint.
+- **F3c on fresh rollouts** — `entropy_audit.py` on the student, not run.
+- **Full-protocol evals** — impractical until the loops are fixed (finding 14).
+- **Primary benchmark suites** — deferred by user direction; moot while F3 fails.

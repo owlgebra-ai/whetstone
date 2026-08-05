@@ -1,6 +1,6 @@
 # P6 — Stage B: assimilation SFT (ZPD band-pass + SED) and the F3 gate
 
-STATUS: in-progress (activity 009)
+STATUS: done (activity 009) — **F3 FAIL**
 MACHINES: turing (baseline evals, training, checkpoint evals); spark (ZPD gate scoring on a π-of-round server); no GLM needed
 DEPENDS ON: P5 done (activity 008, F2 PASS — certified corpus exists); P4 (`whetstone/sed.py` shared verbatim)
 BLOCKS: P7 (Stage C RLs the Stage-B student); P8 comparisons use this packet's baseline evals
