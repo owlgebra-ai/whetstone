@@ -274,7 +274,10 @@ def parse_args(argv=None):
                     help="checkpoint the gates MUST have been scored under; "
                          "for round 1 this equals --init")
     ap.add_argument("--round", type=int, required=True)
-    ap.add_argument("--out-dir", required=True)
+    ap.add_argument("--out-dir", required=True, help="metrics, curves, summary")
+    ap.add_argument("--ckpt-dir", default="",
+                    help="checkpoints (packet layout: /data/whetstone/ckpt/stageb/"
+                         "<arm>/). Defaults to <out-dir>/ckpt.")
     ap.add_argument("--val-pool", default="/data/whetstone/data/pool/val_2k.jsonl",
                     help="held-out problems for the generative spot-check. Must "
                          "exist: a missing pool silently removes the only "
@@ -324,7 +327,8 @@ def main(argv=None) -> int:
                               get_cosine_schedule_with_warmup)
 
     out_dir = Path(args.out_dir); out_dir.mkdir(parents=True, exist_ok=True)
-    ckpt_dir = out_dir / "ckpt"; ckpt_dir.mkdir(exist_ok=True)
+    ckpt_dir = Path(args.ckpt_dir) if args.ckpt_dir else out_dir / "ckpt"
+    ckpt_dir.mkdir(parents=True, exist_ok=True)
 
     gates_meta = assert_gates_fresh(args.gates, args.pi_s_expected, args.round)
     print(f"[gates] fresh: pi_S = {gates_meta['pi_s']} (sha {gates_meta['pi_s_sha']})",
