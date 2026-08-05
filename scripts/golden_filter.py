@@ -365,7 +365,9 @@ def main() -> int:
             if done % 100 == 0:
                 el = (time.time() - t0) / 60
                 print(f"[{done}/{len(todo)}] resolved {state['resolved']}  "
-                      f"unresolved {state['unresolved']}  "
+                      f"exhausted {state['exhausted']}  "
+                      f"api_err {state['api_error']}  "
+                      f"rate_limited {state['rate_limited']}  "
                       f"{state['judgments']} judgments  "
                       f"{state['judgments']/max(1e-9, el):.0f}/min", flush=True)
       jf.flush()
