@@ -53,18 +53,29 @@ Only **P0–P4 are written in full detail**. P5–P7 are deliberately outlines: 
 
 ## P6 — Stage B: learnability-gated, entropy-preserving assimilation (**UNBLOCKED — F2 passed, activity 008**)
 
-> **The corpus is ready.** Unfiltered:
-> `/data/whetstone/corpora/stagea_selected/selected.jsonl` (11,954 traces over
-> 3,994 problems) — read `STAGE_B_HANDOFF.md` in that directory first.
-> Judge-filtered alternative: `/data/whetstone/corpora/stagea_golden/` (2,435
-> problems, one certified-faithful trace each). **Keep both** — the filtered one
-> carries an attested external-judge deviation and the unfiltered one is its
-> control arm.
-> Three binding inputs from 008: weight **per problem**, never per trace
-> (`n_kept`); **re-measure the ZPD γ histogram under the ORIGINAL checkpoint**
-> (008's is under `scorer_v1`, which has 91% of the register tax removed, so it
-> is a lower bound); and treat **level 9 as a known-weak tier** (23.6% faithful,
-> 48.6% wrong on winner traces).
+> ### The corpus is ready. **Designated input (user decision, 2026-08-05):**
+> `/data/whetstone/corpora/stagea_golden/golden_faithfulness.jsonl` —
+> **2,414 problems, one certified trace each**, 750,087 think tokens.
+> **Read `GOLDEN_HANDOFF.md` in that directory before anything else.**
+> Every trace is simultaneously well-formed, verifier-correct, in-register, and
+> **judged faithful against its own verbose source** — the last property is what
+> no other corpus here has.
+>
+> | corpus | problems | traces | certification |
+> |---|---|---|---|
+> | **certified — use this** | **2,414** | 2,414 | verified + faithful vs source |
+> | golden incl. self-contained rubric | 3,652 | 3,652 | verified + sound, two rubrics |
+> | unfiltered selected | 3,994 | 11,954 | verified only — **the control arm, keep it** |
+>
+> Level mix: L1 35.0%, L2–5 21.7%, L6–7 30.2%, L8–9 13.1% — but **by think
+> tokens L1 is only 15.2% and L≥6 is 56.3%**, so sampling over problems and over
+> tokens give different curricula. Choose deliberately.
+>
+> Four binding inputs from 008: weight **per problem**, never per trace;
+> **re-measure the ZPD γ histogram under the ORIGINAL checkpoint** (008's is
+> under `scorer_v1` and is a lower bound); treat **level 9 as a known-weak tier**
+> (82 problems, 65.6% yield, thinnest register); and **do not use G_spike as a
+> training signal in the hard band** — it inverts at level 9.
 
 - Design §4. Student = fresh copy of the *original* checkpoint. No register card in its prompt — the register enters weights here only.
 - ZPD band-pass weights `w_t = σ(κ(log π_S(τ_t) − γ)) · (1 + 0.5·min(S_t, 4))`; **γ from the measured student-on-teacher-corpus logprob histogram**; precompute w_t offline per corpus refresh (scorer pass on spark), store in the training JSONL.

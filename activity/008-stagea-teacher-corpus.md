@@ -615,6 +615,77 @@ verbose traces, structural_gate's own docstring). The lesson is narrower than
 proxies for, at a sample size that could actually falsify it** — and here the
 semantic label existed all along, in the audit log.
 
+### 10c. Why the meter decays: on hard problems, honest reasoning is the surprising thing
+
+The per-level AUC decay in 10b is not noise — the underlying `d_t` statistics
+**invert** at the top of the difficulty range. Median over judged drafts:
+
+| level | faithful `dt_mean` | wrong `dt_mean` | faithful frac > τ_leap | wrong frac > τ_leap |
+|---|---|---|---|---|
+| 1 | 0.668 | **0.812** | 0.082 | 0.091 |
+| 5 | 0.502 | 0.571 | 0.059 | 0.065 |
+| 6 | 0.535 | 0.556 | 0.062 | 0.063 |
+| 7 | 0.613 | 0.615 | 0.072 | 0.070 |
+| 8 | 0.655 | 0.701 | 0.080 | 0.082 |
+| **9** | **0.824** | **0.728** | **0.097** | **0.082** |
+
+At level 1 a wrong trace is measurably *more* surprising to the student, which is
+what the design assumed. By level 7 the two are indistinguishable. **At level 9
+it flips: faithful traces are more surprising than wrong ones and trip τ_leap
+more often** (9.7% of think tokens vs 8.2%).
+
+**The mechanism is not mysterious and it should have been predictable.** G_spike
+measures *"can the student follow this"*. On an easy problem that is a decent
+proxy for *"is this correct"*. On a research-level problem it is close to the
+opposite: a genuine derivation contains steps a 1.7B cannot anticipate — that is
+what makes the problem hard — while a confabulation is generic fluent filler
+("applying the standard result, we conclude…") that is highly predictable and
+therefore scores *well*.
+
+So the meter does not degrade gracefully into noise; **it degrades into a
+signal that prefers waffle**, in exactly the band where reward pressure would do
+the most damage. Finding 10's intuition was right for the hard band even though
+its evidence was not; 10b's retraction is right in aggregate. Both halves are
+needed to state the result correctly, which is why neither is deleted.
+
+### 10d. The certified set: level distribution and the eligible-pool gap
+
+The 2,414 problems certified under the faithfulness rubric — **the designated
+Stage-B input** (user decision, 2026-08-05):
+
+| level | golden | share | eligible | of eligible | exhausted | unjudged | think tok | lines | mark/100ch |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 | 844 | 35.0% | 853 | 98.9% | 9 | 0 | 126 | 7 | 3.49 |
+| 2 | 5 | 0.2% | 5 | 100% | 0 | 0 | 219 | 8 | 2.20 |
+| 3 | 88 | 3.6% | 92 | 95.7% | 3 | 0 | 252 | 10 | 2.56 |
+| 4 | 105 | 4.3% | 110 | 95.5% | 2 | 0 | 392 | 14 | 1.66 |
+| 5 | 327 | 13.5% | 353 | 92.6% | 17 | 1 | 390 | 14 | 1.67 |
+| 6 | 494 | 20.5% | 546 | 90.5% | 35 | 1 | 402 | 15 | 1.58 |
+| 7 | 234 | 9.7% | 276 | 84.8% | 30 | 0 | 370 | 13 | 1.65 |
+| 8 | 235 | 9.7% | 314 | 74.8% | 62 | 0 | 332 | 12 | 1.51 |
+| 9 | 82 | 3.4% | 125 | 65.6% | 42 | 0 | 256 | 10 | 1.11 |
+| **all** | **2,414** | 100% | **2,674** | **92.3%** | **200** | **2** | | | |
+
+**"Eligible" means the problem has a verified verbose source**, so the
+faithfulness rubric can run at all; everything else went to the self-contained
+rubric. The 260-problem gap is **200 exhausted and 2 unjudged** — the pool is
+essentially fully processed, so the `of eligible` column is a clean measure of
+teacher quality rather than of judge budget. (58 more are mid-walk and would
+settle with ~150 judgments, capping the pool near 2,450.)
+
+**Two properties that matter for Stage B.** First, **it is far better balanced
+than the combined golden set**: level 1 is 35% of problems here against 54%
+there, because most level-1 problems had no verbose trace and went to the other
+rubric. Second, **by think tokens it is weighted toward hard reasoning** — level
+1 is only **15.2%** of the 750,087 think tokens while **levels ≥6 are 56.3%**,
+since level-1 traces run 126 tokens against level-6's 402.
+
+The right-hand columns carry finding 12's truncation signature into the
+certified corpus: marker density falls 3.49 → 1.11 from level 1 to 9, and lines
+per trace peak at level 6 (15) then *fall* to 10 at level 9. Filtering on
+faithfulness does not remove that — the register the student will see is
+systematically thinner exactly where the reasoning is hardest.
+
 ### 11. Temperature is a real but unproven lever on branch diversity
 
 Finding 7 showed branch retention clustered per problem, which kills K as a
@@ -1103,6 +1174,24 @@ already known catches false *findings*; running the whole pipeline on 50 records
 catches false *plumbing*; and asking "what population is this rate over?"
 catches false *denominators*.
 
+### The designated Stage-B input (user decision, 2026-08-05)
+
+**`/data/whetstone/corpora/stagea_golden/golden_faithfulness.jsonl` — 2,414
+problems, one certified trace each.** Every trace in it is simultaneously:
+
+* **well-formed** — segment gate g=1 on the shared `whetstone/round0.py`
+  construction;
+* **verified correct** — deterministic `verify_response` on the answer segment;
+* **in the compact register** — selection ranks register adherence first;
+* **judged faithful against its own verbose source** by GLM-5.2 under the
+  faithfulness rubric, which forbids dropping a step's value, a case split, a
+  rejected branch or a self-correction.
+
+That last property is what the other corpora do not have, and it is why this
+set was chosen over the 11,954-trace unfiltered corpus and over the 3,652-problem
+combined golden set. See 10d for its level distribution, and the deviation note
+below for what it costs.
+
 ### The golden corpus — an attested deviation
 
 At user direction (2026-08-04) the GLM judge was promoted from evaluator to
@@ -1135,7 +1224,14 @@ clearest demonstration in this packet that best-of-K works when the property is
   bound**; P6 must re-measure under the original checkpoint before pinning γ.
 * The student starts from the **original** checkpoint, never `scorer_v1`.
 * **Level 9 is the weak tier on every axis measured** — faithfulness, register
-  adherence, compression, branch retention. Treat it as a known deficiency
-  rather than discovering it again.
-* 1,360 problems still have unjudged candidates; the judgments log makes
-  resuming free whenever quota allows.
+  adherence, compression, branch retention. In the certified set it is 82
+  problems (3.4%), drawn from an eligible pool of 125 at a 65.6% yield. Treat it
+  as a known deficiency rather than discovering it again.
+* **Do not use G_spike as a training signal in the hard band** (10b, 10c). It is
+  a usable weak signal at level 1 (AUC 0.800) and actively points the wrong way
+  at level 9, where faithful traces are *more* surprising to the student than
+  fabricated ones. A reward built on it pressures where it does not matter and
+  rewards fluent filler where it does.
+* ~284 problems remain unresolved overall and 58 are mid-walk in the certified
+  pool; the judgments log makes resuming free whenever quota allows. Nothing
+  downstream is blocked on them.
