@@ -226,7 +226,16 @@ def spot_check(model, tok, probs: list, max_new: int = 2048,
     model.config.use_cache = True
     tok.padding_side = "left"
 
+    # `*_lens` span EVERY generation, `*_lens_ok` only well-formed ones. Keeping
+    # both is not redundancy: a rollout that hit the cap has no `</think>`, so it
+    # contributes answer_len 0, and with a g-rate near 0.6 the all-generation
+    # answer median collapses to ~20 tokens and looks like the model stopped
+    # writing answers. The g=1 median is the one to read; the all-generation one
+    # is retained so curves from before this was noticed stay comparable
+    # (activity 009 — arms A and B must be read on the same statistic).
     think_lens, answer_lens, g_ok, leak, mark = [], [], 0, 0, []
+    think_ok, answer_ok = [], []
+    reasons: collections.Counter = collections.Counter()
     try:
         texts = [
             tok.apply_chat_template([{"role": "user", "content": p}],
@@ -245,9 +254,16 @@ def spot_check(model, tok, probs: list, max_new: int = 2048,
                 gen = [t for t in out[i, plen:].tolist() if t != pad_id]
                 m = parse_segments(gen, prompt_len=0)
                 g_ok += int(m.g == 1)
+                if m.g != 1:
+                    # WHY it failed is the actionable half. `missing_think_close`
+                    # is a cap hit (raise --spot-max-new); `empty_answer` or
+                    # `duplicated_think_*` is the model, and an F3d problem.
+                    reasons[m.reason] += 1
                 think_lens.append(m.think_len)
                 answer_lens.append(m.answer_len)
                 if m.g == 1:
+                    think_ok.append(m.think_len)
+                    answer_ok.append(m.answer_len)
                     atxt = tok.decode(gen[m.answer_start:m.answer_end])
                     leak += int(any(k in atxt for k in LEAK_MARKERS))
                     ttxt = tok.decode(gen[m.think_start:m.think_end])
@@ -264,6 +280,9 @@ def spot_check(model, tok, probs: list, max_new: int = 2048,
     return {
         "spot_think_median": float(np.median(think_lens)) if think_lens else None,
         "spot_answer_median": float(np.median(answer_lens)) if answer_lens else None,
+        "spot_think_median_ok": float(np.median(think_ok)) if think_ok else None,
+        "spot_answer_median_ok": float(np.median(answer_ok)) if answer_ok else None,
+        "spot_gate_reasons": dict(reasons),
         "spot_g_rate": g_ok / max(len(probs), 1),
         "spot_answer_leak_rate": leak / max(g_ok, 1) if g_ok else None,
         "spot_think_marker_density": float(np.mean(mark)) if mark else None,
