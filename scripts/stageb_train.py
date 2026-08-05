@@ -182,6 +182,16 @@ def control_entropy(model, control: list, topk: int = 512) -> dict:
         "control_entropy_mean": float(v.mean()),
         "control_entropy_median": float(np.median(v)),
         "control_entropy_p80": float(np.percentile(v, 80)),
+        # The two masses the design actually reasons about. Collapse mass is what
+        # kills Stage C: a collapsed policy makes all 8 rollouts in a DAPO group
+        # identical, every advantage zero, and the update a no-op at full
+        # generation cost. Fork mass is the exploration Stage C consumes.
+        # Audit baseline: collapse 56.8%, fork 2.83%. Activity 003 measured this
+        # checkpoint's second entropy mode at ~0.7 nats, not the design's 1.5, so
+        # both thresholds are reported.
+        "control_collapse_mass": float((v < 0.1).mean()),
+        "control_fork_mass_0.7": float((v > 0.7).mean()),
+        "control_fork_mass_1.5": float((v > 1.5).mean()),
         "control_entropy_n": int(v.size),
     }
 
@@ -463,6 +473,15 @@ def main(argv=None) -> int:
             "lr": sched.get_last_lr()[0],
             "ce_weighted": run["ce"] / max(run["n"], 1),
             "sed_k2": run["sed"] / max(run["n"], 1),
+            # SED health. tau_at_hi_frac climbing toward 1 means the bisection is
+            # pinned at its ceiling and H_t + Delta_t is no longer achievable --
+            # entropy will decline no matter what alpha_sed is, and the fix is
+            # H_pivot or delta_max, not more SED.
+            "sed_tau_at_hi_frac": run["tau_hi"] / max(run["n_sed"], 1),
+            "sed_tau_at_lo_frac": run["tau_lo"] / max(run["n_sed"], 1),
+            "sed_tau_mean": run["tau_mean"] / max(run["n_sed"], 1),
+            "sed_delta_mean": run["delta_mean"] / max(run["n_sed"], 1),
+            "sed_H_shadow_mean": run["h_shadow"] / max(run["n_sed"], 1),
             "w_masked_frac": run["masked"] / max(run["n_tok"], 1),
             "w_marker_mean": run["marker_w"] / max(run["marker_n"], 1) if run["marker_n"] else None,
             "w_mean": run["w_sum"] / max(run["n_tok"], 1),
@@ -566,7 +585,19 @@ def main(argv=None) -> int:
                 sel = torch.randperm(sed_off.numel(), device="cuda")[: args.sed_max_think]
                 sed_off = sed_off[sel].sort().values
             if sed_off.numel():
-                sed_loss = sed.loss_rows(rlogits[sed_off], ids, ce_pos[sed_off])
+                # return_stats: tau_hat pinned at its 1.5 ceiling is THE signal
+                # that the entropy target has become unreachable (packet P6 §9's
+                # F3c diagnosis). Round 2 of arm A shed 8% of its entropy mean
+                # after step 50 with no way to tell whether SED was saturating
+                # or simply out-pulled, because these were not being recorded.
+                sed_loss, sst = sed.loss_rows(rlogits[sed_off], ids, ce_pos[sed_off],
+                                              return_stats=True)
+                run["tau_hi"] += sst["tau_at_hi_frac"]
+                run["tau_lo"] += sst["tau_at_lo_frac"]
+                run["tau_mean"] += sst["tau_mean"]
+                run["delta_mean"] += sst["delta_mean"]
+                run["h_shadow"] += sst["H_shadow_mean"]
+                run["n_sed"] += 1
             else:
                 sed_loss = rlogits.sum() * 0.0
 
