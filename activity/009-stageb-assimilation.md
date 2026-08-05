@@ -110,15 +110,58 @@ have made every ± number in this project meaningless.
     --K 8 --temperature 0.7 --top_p 0.95 --max_tokens 32768 \
     --max_model_len 36864 --enable_thinking --no_system_prompt --seed 0
   ```
-- 10,552 generations; log `/data/whetstone/runs/009/baseline_gsm8k_test.log`.
-- **Early reading from the 12-problem smoke (not a reportable number): median think
-  ≈ 1,681 tokens on GSM8K, not 6,099.** The 6,099 figure (activity 003) is the
-  native median on the *training pool* at T=0.9 — DeepMath-heavy and much harder.
-  GSM8K is grade-school arithmetic and the model thinks far less on it. **F3b's
-  goalpost on this suite is therefore ~50% of ~1.7k, not of ~6.1k**, which is
-  exactly why the packet refuses to compare against a differently-measured baseline.
+- 10,552 generations in **6,547 s (1 h 49 m)**; log
+  `/data/whetstone/runs/009/baseline_gsm8k_test.log`. Card written to
+  `/data/whetstone/eval/baselines/qwen3-1.7b-original/CARD.md`.
 
-(result pending)
+| metric | value |
+|---|---|
+| **Pass@1 (mean over 8 decoding draws)** | **90.49% ± 0.25** |
+| per-draw Pass@1 | 90.75, 90.45, 90.07, 90.45, 90.52, 90.22, 90.60, 90.83 |
+| pass@8 | 95.07% |
+| **median think tokens** | **1,477** |
+| **median answer tokens** | **288** |
+| cap-hit rate | 0.00% |
+| g-rate | 100.00% |
+
+g-rate is 100%, so the g=1 medians and the all-generation medians are identical —
+no truncation mass is hidden behind them. The ± 0.25 pt seed std means F3a's
+1-point threshold is ~4σ, a real bar rather than noise.
+
+**Derived F3 goalposts (gsm8k_test): F3a ≥ 89.49% · F3b think ≤ 738 and answer in
+the band around 288 · F3d g ≥ 99%.**
+
+> **Finding 5 — there are now TWO length baselines and confusing them would
+> invalidate F3b.** They differ by 4×:
+>
+> | protocol | suite | T | cap | think median | answer median |
+> |---|---|---|---|---|---|
+> | eval (§12.7) — **F3b is measured here** | gsm8k_test | 0.7 | 32,768 | **1,477** | **288** |
+> | entropy audit (activity 003) — **F3c is measured here** | val_2k | 0.9 | 16,384 | **6,099** | **679** |
+>
+> The famous 6,099 is the *audit* number: `val_2k` is DeepMath-heavy and sampled
+> hotter. On GSM8K under the eval protocol the model thinks 1,477 tokens. Quoting
+> 6,099 as the F3b baseline would set the bar at ~3,000 instead of 738 — a gate
+> that passes on arrival. Both numbers stay; each belongs to exactly one gate.
+
+> **Finding 6 — the answer segment is expected to GROW, and F3b's wording assumed
+> the opposite.** Baseline answer median **288**; the corpus's is **475**
+> (finding 1). The packet says to "confirm it stays in the baseline's band —
+> answers must NOT compress"; the live risk is a **+65% expansion**, not
+> compression. Total output therefore goes 1,765 → ~726 (**2.4×**) against the
+> think-only reading of 1,477 → 251 (**5.9×**). All three numbers get reported;
+> the think-only one alone overstates the result by 2.5×.
+
+**F3c protocol pinned** from the audit's own `config` block, so the student is
+measured identically: `entropy_audit.py --pool /data/whetstone/data/pool/val_2k.jsonl
+--n 200 --seed 0 --temperature 0.9 --top_p 0.95 --max_tokens 16384 --max_len 20480
+--chunk 1024`, top-k 512. Baseline think entropy mean **0.31759**, p50 **0.027817**,
+p80 **0.69234**, collapse mass 56.8%.
+
+**Continuity substitution (recorded):** the packet's per-checkpoint cheap-mode runs
+target `standard_eval_300`, which the user's re-scoping removed. Substituted:
+`gsm8k_test --limit 300 --K 1 --temperature 0` — same role (cheap trend line,
+never the verdict), same suite as F3a so the trend and the gate cannot diverge.
 
 ### Run 4 — Parts 1–3: dataset, ZPD gates, γ (spark + turing, `7ec4859`)
 
