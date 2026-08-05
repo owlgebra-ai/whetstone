@@ -412,6 +412,69 @@ this is not an entropy failure.
 > Ungating them in the CE term alone would put the two terms into direct
 > opposition at ~10× the current SED magnitude.
 
+### Run 7 — the register-whitelist floor (user-ratified fix), and a refuted alternative
+
+**Fix ratified by the user 2026-08-05:** card §2 tokens get a weight floor of 1.0
+inside the think segment, and are exempted from SED. Implemented in
+`whetstone/zpd.py` as a **floor** (`np.maximum`), not a replacement — mid-line
+markers already earn more than 1.0 and overwriting would demote them. Verified
+monotone: `goal` 0.000 → 1.000, `chk` 0.000 → 1.000, line-initial `⇒` 0.039 →
+1.000, mid-line `⇒` 2.795 unchanged, ordinary token 1.250 unchanged. 37 card
+token ids; **32,127 floored tokens = 1.68% of completion tokens**; corpus mean
+masked 1.89% → 0.75%.
+
+**It works.** Same config, same seed, spot-check at the first reading:
+
+| | think median | answer median | g-rate | marker density |
+|---|---|---|---|---|
+| no floor, step 100 | **1** | 434.5 | 0.95 | **0.000** |
+| no floor, step 200 | **1** | 279.0 | 0.80 | **0.000** |
+| **floor, step 50** | **869** | 86.5 | 0.70 | **0.493** |
+
+The think block is alive and register markers are being emitted (0.164 at step 0
+→ 0.493), against a corpus density of ~2.0. Register-marker mean w_t rose
+1.19 → 1.53. Partial no-floor and floor-only runs preserved under
+`/data/whetstone/runs/009/failed_nofloor/` and `floor_only_partial/`.
+
+> **Finding 9 — REFUTED: stripping `goal:` does not fix the collapse, because the
+> 40 nats is the POSITION, not the token.**
+>
+> User hypothesis (2026-08-05): delete the `goal:` label from the corpus so the
+> model implicitly learns to verbalise the goal, avoiding any change to design
+> §4.1. Motivated by a measurement in this journal — the goal-statement text
+> after `goal:` costs only **1.40** nats mean (p50 0.00, 2.4% masked).
+>
+> Tested properly: built `/data/whetstone/corpora/stageb/golden_nogoal/`
+> (2,414 records, 745,573 think tokens, `--strip-markers "goal:"`) and re-scored
+> the gates under the original checkpoint. Result:
+>
+> | corpus | think pos 1 top token | S mean | w mean | masked |
+> |---|---|---|---|---|
+> | with `goal:` | `goal` (100%) | 40.082 | 0.0000 | **100.0%** |
+> | **stripped** | `total` (14%) — diverse | **35.876** | **0.0000** | **100.0%** |
+>
+> **Position 1 is still masked in 100% of traces.** After `<think>\n` the
+> original checkpoint expects *its own verbose opening* ("Okay, so I need
+> to…"); any terse register opening is ~36–40 nats surprising whatever its first
+> word. Removing the label just moves the cost onto the first content word.
+>
+> ⚠ **This corrects the 1.40-nat measurement that motivated the hypothesis.**
+> That number was taken from positions *after* `goal:` — it is the cost of the
+> goal statement **given the label**, not cold. The stripped corpus asks the model
+> to produce that text cold, and cold it costs 35.9 nats.
+>
+> **Corollary, and the reason the strip is worse than neutral:** `goal` is a card
+> §2 token, so the whitelist floor can catch it. `total`, `evaluate`, `find` are
+> not, so nothing can floor them. **Stripping removes the only handle the fix had
+> on the trace-opening position**, and the strip arm would collapse the same way
+> with no available remedy. The stripped corpus and its gates are kept for the
+> record; they were not trained.
+>
+> The user's design judgment that `goal:` adds little to the *reasoning* may still
+> be right — but it cannot be delivered by deletion alone. It would need a
+> positional floor on the first think tokens, which is a strictly larger change
+> than the card-token floor already ratified.
+
 ## Conclusion
 
-(pending — F3 verdict; blocked on the finding-7 design decision)
+(pending — F3 verdict)
