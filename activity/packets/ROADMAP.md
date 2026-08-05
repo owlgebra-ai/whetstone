@@ -122,14 +122,26 @@ Suite roles — three tiers with different touch frequencies, so headline number
   2,048, **answer budget 2,048** (1,024 cap-outs hit 15.4% of level 6 and 0% of
   level 1 — an artifact biasing against the hard tier; the *think* cap is signal
   and stays).
-- **G_spike does NOT detect asserted-crux traces — it prefers them.** Measured
-  2.76e-05 vs 1.48e-05 (β=10) for assert-flagged vs derived, surviving a
-  restriction to level ≥7, and corroborated independently by the GLM judge.
-  Design §3.2's "a hallucinated or unsupported compact step is, by construction,
-  a spike" is **false on this corpus**: hand-waving is fluent and fluency is what
-  the meter reads. **Binding on P7** — Stage C puts a G_spike-like term inside an
-  optimiser, where Goodhart pressure stops being one-shot. Keep it last in any
-  lexicographic rule and never let it outrank a structural criterion.
+- **G_spike is a WEAK faithfulness signal whose resolving power decays to zero
+  with difficulty.** Measured against the GLM judge's verdict on **5,955 scored
+  drafts**: median `g_spike_b10` is 5.245e-05 (faithful) / 2.909e-05 (lossy) /
+  1.847e-05 (wrong) — monotone in the right direction, and certified traces
+  carry 2.2× the median of rejected ones. But faithful-vs-wrong AUC is only
+  **0.628 pooled**, partly a difficulty artifact, and **within level it falls
+  0.800 (L1) → 0.633 (L6) → 0.555 (L8) → 0.541 (L9)** — a coin flip exactly
+  where reward pressure matters. `dt_mean` and `dt_p95` barely differ between
+  faithful and wrong (0.605/0.637 and 4.237/4.075), so the separation is not in
+  the statistics the dashboards plot.
+  **Binding on P7:** a G_spike-driven reward applies real pressure on easy
+  problems and noise on hard ones — the reverse of what is wanted. Keep it last
+  in any lexicographic selection rule; do not rely on it as a *training* signal
+  in the hard band.
+  ⚠ **This supersedes an earlier claim in activity 008 finding 10 that G_spike
+  *prefers* asserted traces (retracted in finding 10b).** That rested on a
+  numeral-sparsity proxy over 66 drafts; the semantic label over 5,955 drafts
+  says the opposite in direction. Lesson recorded: a proxy needs its own
+  validation against the thing it proxies for, at a sample size that could
+  falsify it.
 - **Conditioning drives faithfulness more than difficulty does.** Hard band
   `gold+trace` **57.1% faithful / 17.7% wrong** vs `gold`-only **10.5% / 73.7%**
   (n=241, z=5.27, p<1e-6). Given the answer but not the reasoning on a hard

@@ -514,7 +514,7 @@ register is the whole deliverable), and it cost nothing:
 Verify and branch capture efficiency both stayed at **100%** after inserting a
 criterion above them, because the runner-up property passes still reach them.
 
-### 10. G_spike does not catch the failure the audit exists to catch
+### 10. G_spike does not catch the failure the audit exists to catch — **RETRACTED, see 10b**
 
 A deterministic probe for the packet's named reward-hacking signature — a trace
 that *asserts* the gold rather than deriving it — flags drafts whose compact
@@ -564,6 +564,56 @@ genuine gap in this run. (iii) This is a concrete instance of activity 007's
 "the instrument is shallow but honest — do not design a stage that needs a
 sharp threshold", and it should be carried into Stage C, where G_spike-like
 terms enter an actual optimiser and Goodhart pressure is no longer one-shot.
+
+### 10b. **CORRECTION to finding 10** — G_spike is weak, not inverted
+
+Finding 10 above concluded that G_spike *prefers* asserted traces. **That
+conclusion is wrong and is retracted.** It rested on a numeral-based proxy for
+"asserts the gold" (≤1 non-gold numeral in the compact think) applied to 66
+drafts, with three hand-verified. The proxy does not measure assertion — it
+measures *numeral sparsity*, which tracks brevity and symbolic content, both of
+which move G_spike on their own. Three confirmations out of 66 was never
+validation of the proxy, and treating it as such is the error.
+
+Re-run against the **judge's semantic verdict** on **5,955 scored drafts**
+(faithfulness rubric only):
+
+| verdict | n | median `g_spike_b10` | dt mean | dt p95 | think tok |
+|---|---|---|---|---|---|
+| faithful | 2,439 | **5.245e-05** | 0.605 | 4.237 | 252 |
+| lossy | 1,708 | 2.909e-05 | 0.655 | 4.269 | 332 |
+| wrong | 1,808 | **1.847e-05** | 0.637 | 4.075 | 432 |
+
+Monotone in the *right* direction, and the 2,414 certified traces carry 2.2× the
+median G_spike of rejected drafts (5.23e-05 vs 2.34e-05).
+
+**The corrected finding is still a warning, but a different one.** Pooled AUC
+for faithful-vs-wrong is **0.628** — weak, and partly a difficulty artifact,
+since easy problems have both higher G_spike and higher faithfulness. Within
+level, which controls for that:
+
+| level | 1 | 4 | 5 | 6 | 7 | 8 | 9 |
+|---|---|---|---|---|---|---|---|
+| **AUC** | 0.800 | 0.728 | 0.667 | 0.633 | 0.569 | 0.555 | **0.541** |
+
+**G_spike is a usable weak signal on easy problems and near-blind on hard ones.**
+At level 9 it is a coin flip. Note also that `dt_mean` and `dt_p95` barely differ
+between faithful and wrong (0.605 vs 0.637; 4.237 vs 4.075), so whatever
+separation exists is not in the summary statistics the dashboards plot.
+
+**What this changes for Stage C.** The mitigation is not "G_spike is inverted,
+distrust its ordering" but "G_spike's resolving power decays with difficulty to
+nothing" — so a reward built on it applies real pressure on easy problems and
+noise on hard ones, which is the reverse of where pressure is wanted. Keeping it
+last in a lexicographic rule remains right; relying on it as a *training* signal
+in the hard band does not.
+
+**Method note.** This is the second time in this packet a plausible number came
+from an unvalidated proxy (the first: `src_has_branch` firing on 99.5% of
+verbose traces, structural_gate's own docstring). The lesson is narrower than
+"check your numbers": **a proxy needs its own validation against the thing it
+proxies for, at a sample size that could actually falsify it** — and here the
+semantic label existed all along, in the audit log.
 
 ### 11. Temperature is a real but unproven lever on branch diversity
 
