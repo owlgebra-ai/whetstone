@@ -115,6 +115,95 @@ Suite roles — three tiers with different touch frequencies, so headline number
 - **TODO (next executing agent, ~30 min on spark):** `gsm8k_test.jsonl` is not yet built — add the suite to `build_eval_sets.py` (`openai/gsm8k` config `main`, split `test`, same schema, pin revision) and emit to `/data/whetstone/eval/`. Contamination pre-cleared: activity 002 Run 5 checked the train pool against GSM8K-test — 0 hits.
 - Baselines (SCA / DeepCompress / prompted-compressor arms) run the identical protocol from the same checkpoint — numbers are only comparable inside the same tier and protocol.
 
+## Facts pinned by activity 009 (P6 / **F3 gate**) — binding on all later packets
+
+- **F3 FAILS.** Stage B installs the register and compresses think length **7.2×**
+  (1,540 → 215 median) with entropy *restored*, and loses **23–25 accuracy points**
+  doing it. The gate allowed 1. Screening protocol: 200 problems × K=2, full
+  sampling protocol, subset validated (baseline 90.62% ± 0.52 on the 200 vs 90.49%
+  on all 1,319 — +0.14 pt bias against a ±4.04 pt CI).
+
+  | | Pass@1 as-scored | Pass@1 strict | think | answer | cap-hit | g |
+  |---|---|---|---|---|---|---|
+  | baseline | 90.62% | 90.19% | 1,540 | 291 | 0.00% | 100% |
+  | **round 1 (best)** | **67.25%** | **65.00%** | 215 | 180 | 3.25% | 94.25% |
+  | round 2 | 63.50% | 59.75% | 173 | **19** | 3.50% | 96.25% |
+
+- **The ZPD band-pass cannot install a specified register unaided.** Every trace
+  opens `<think>\n goal:`, and `goal` sits ~40 nats out — **masked in 100.0% of
+  2,414 traces**. Untrained, the student emits an empty `<think></think>`. **No γ
+  fixes it**: γ must reach ≈ −42 before `goal` carries weight, at which point corpus
+  masking is 0.00% and the gate is off entirely (v1 Diagnosis #1 restored).
+  **The fix is a register-card whitelist floor** (w ≥ 1.0 on card §2 tokens inside
+  think, plus SED exemption — `whetstone/zpd.py`), user-ratified as an attested
+  deviation from design §4.1.
+- **The cost is POSITIONAL, not lexical.** Two alternatives were built, gated and
+  (for one) trained, and both are refuted: **deleting `goal:`** leaves position 1
+  masked at 35.9 nats and reproduces the collapse exactly (trained, 602 steps,
+  **zero register markers ever emitted**) — worse than the floor because the first
+  content word is not a card token and nothing can floor it. **Replacing `goal:`
+  with `Okay,`** makes the opener free (0.001 nats) but moves the wall to position 3
+  (30.6 nats, still 100% masked) and **doubles whole-block masking, 1.66% → 3.39%**,
+  because a natural opener primes the model for prose.
+- **Two rounds are worse than one.** Round 2 compressed further and adopted the
+  register harder (markers 0.79 → 1.70) and was worse on accuracy (−3.75 pts),
+  answer length (180 → **19**, i.e. −93% vs baseline) and entropy (−8% from its
+  step-50 peak). **Revise the packet's two-round prescription to one round.**
+- **The register has no backtracking primitive, and that is the non-termination
+  bug.** 3.25–3.5% of generations never close `<think>` and run to the 32,768 cap;
+  **those 3.5% consume 77.7% of the decode budget**, which is why full-protocol
+  evals take **13–17 h** against the baseline's 1 h 49 m. Failure is unambiguous
+  degenerate repetition (a line repeated 2,729×; a single 35,085-char `chk:` chain;
+  `case N:` enumeration to `case 713:`), it is stochastic not problem-determined
+  (0/200 problems had all K fail), near-absorbing (~26% escape), and fires on hard
+  problems (sibling correct 29% vs 67%). **`Wait`/`wait` appears zero times in all
+  14** — compression stripped the token a thinking model uses to back out of a bad
+  line. **This is a register-card finding (P3a), not a Stage-B loss finding.**
+- **`verify.py` inflates degenerate models 14× more than the baseline.** Its cascade
+  ends with `npred.endswith(ngold)` / `ngold.endswith(npred)`, so **gold `200` with
+  prediction `0` grades correct**; and `_strip_think` falls back to the whole text
+  when `</think>` is absent, mining the scratchpad for `\boxed{}`. Measured:
+  baseline **+0.27 pts** (29/10,552) vs round-2 student **+3.75 pts** (15/400).
+  It **narrows** every measured gap. **NOT modified** (kept-unchanged per CLAUDE.md;
+  changing it moves P5's F2 numbers retroactively) — **P8 owns the decision; report
+  both numbers until then.** The baseline card's strict figure is **90.21%**.
+- **Loss and entropy cannot detect a dead run.** Arm A (works) and arm B (produces
+  nothing parseable) ended at CE 0.5399 vs 0.5524, SED K2 0.16606 vs 0.16610,
+  entropy mean 0.6456 vs 0.6381. **Only generative evaluation separates them** — the
+  original collapse went unnoticed for 100 steps because CE and entropy looked fine.
+- **Entropy is not the problem.** Restoration delivered: round-1 control-slice mean
+  0.3286 → 0.6455, median 0.0125 → **0.2603 (9.4× the audit baseline)**, p80 0.6490
+  → 1.2282. Round 2 gave back 8% from its step-50 peak then stabilised. **F3c was
+  never measured on fresh rollouts** — that run is still owed.
+- **γ = ln(1e-4) = −9.2103, measured not placeholder**, and **insensitive**: sweeping
+  −11.5 → −5 moves masking only 1.3% → 4.9%. Whole-corpus masking 2.09%, *below*
+  the packet's 5–30% band, and **flat in difficulty** (L1 4.80% is the *most* masked,
+  L9 2.16%) — masking tracks register density, not reasoning difficulty. Activity
+  006's masking fear is answered: **the 32B teacher's traces are within a 1.7B
+  student's reach at every level** — though that measures teacher-forced
+  predictability, not the ability to *produce* the reasoning.
+- **The corpus's answers are longer than its think blocks** (median 475 vs 251), so
+  compression is **16.2× on think but 5.5× on the whole completion**, and 47.3% of
+  answers are full sectioned re-derivations. **Report total output length beside the
+  two segment numbers** or the headline overstates by ~2.5×. Note the student did
+  *not* learn this: its answers collapsed to 180 (r1) / 19 (r2) against a 291
+  baseline — it generalised "be terse" across the whole completion.
+- **`gsm8k_test` is built** — 1,319 rows, `openai/gsm8k` config `main`, revision
+  `740312add88f781978c0658806c59bc2815b9866`. GSM8K's gold is the tail after the
+  `####` marker, not the `answer` field (which is the whole derivation) — the
+  generic math normalizer would have scored the suite near 0%.
+- **Baseline card frozen** at `/data/whetstone/eval/baselines/qwen3-1.7b-original/`:
+  **90.49% ± 0.25** (strict 90.21%), pass@8 95.07%, think 1,477, answer 288,
+  cap-hit 0.00%, g 100%, at N=8/T=0.7/top-p 0.95/32k. **Two length baselines exist
+  and must not be confused**: 1,477 is the eval protocol on GSM8K (F3b's home);
+  6,099 is the entropy audit on val_2k at T=0.9 (F3c's home).
+- **Ops:** spark is ~10× slower than turing on decode-heavy eval (645 vs 6,800
+  tok/s) — CLAUDE.md's rule confirmed quantitatively. `pkill -f "<pattern>"` run
+  over ssh **self-matches the ssh command line**; kill by PID. Orphaned
+  `VLLM::EngineCore` (PPID 1) held 51 GB and 30 GB on two separate occasions —
+  always check `nvidia-smi --query-compute-apps` after killing a vLLM job.
+- **P7 must NOT proceed.** F3a is missed by 23 points, not by a sweep's worth.
+
 ## Facts pinned by activity 008 (P5 / **F2 gate**) — binding on all later packets
 
 - **F2 PASSES on all four sub-gates.** 33,640 drafts over 4,000 problems →
