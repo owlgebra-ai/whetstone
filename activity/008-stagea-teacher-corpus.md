@@ -1,10 +1,10 @@
 # 008 — P5: Stage A, the teacher corpus by generate-and-select
 
 - **Packet:** [packets/P5-stage-a-teacher-corpus.md](packets/P5-stage-a-teacher-corpus.md)
-- **Status:** in-progress
+- **Status:** done — **F2 PASS**
 - **Machine(s):** mac (code), turing (32B generation), spark (scorer_v1 scoring)
-- **Code commit(s):** `8be9b5a` →
-- **Started / finished:** 2026-08-04 →
+- **Code commit(s):** `8be9b5a` → `0207a48`
+- **Started / finished:** 2026-08-04 → 2026-08-05
 
 ## Goal
 
@@ -27,6 +27,9 @@ at the end.
 | `scripts/score_drafts.py` | Part 2 — G_spike/G_budget under `scorer_v1` + structural annotation |
 | `scripts/select_teacher_corpus.py` | Part 3 — lexicographic winner + ≤2 diverse runners-up |
 | `scripts/stagea_audit_loop.py` | Part 4 — rolling GLM audit driver with the pause rule |
+| `scripts/stagea_draft_stats.py` | draft-level stats with a non-circular R_acc |
+| `scripts/stagea_dashboards.py` | Part 6 — the F2d panels |
+| `scripts/golden_filter.py` | judge-filtered golden corpus (attested deviation) |
 
 ---
 
@@ -865,6 +868,224 @@ from a teacher limitation.
 
 ---
 
+## Part 6 — F2 gate
+
+Final binding pass over the complete raw corpus: **33,640 drafts** (32,000
+round-1 + 1,640 round-2 re-conditioned), 32,590 scored, **3,994 of 4,000
+problems served**, 11,954 selected traces.
+
+### F2a — accuracy: **PASS**
+
+| | R_acc |
+|---|---|
+| all drafts (gate-passing) | **98.72%** |
+| all drafts (incl. cap-hits) | 96.88% |
+| **selected corpus** | **100.0%** |
+
+Selection does not trade correctness for style — it cannot, since `verify_ok`
+is a survivor condition. Per level, R_acc over gate-passing drafts is
+**95.6–100%**, every level clearing the packet's ~90% floor (minimum: level 2 at
+95.6%, n=294).
+
+### F2b — structure: **PASS**
+
+Per problem, which is how the packet states the targets:
+
+| property | eligible problems | ≥1 candidate has it | **selection captured** | capture efficiency | target |
+|---|---|---|---|---|---|
+| `verify_kept` | 2,630 | 99.2% | **99.2%** | **100%** | ≥85% ✅ |
+| `branch_kept` | 2,593 | 40.5% | **40.5%** | **100%** | ≥30% ✅ |
+| in-register | 3,994 | 98.6% | **98.6%** | **100%** | — |
+
+Per trace: `verify_kept` raw 79.3% → selected **93.3%**; `branch_kept` raw
+16.0% → **24.3%**; register adherence raw 78.3% → **94.8%**.
+
+**Capture efficiency is 100% on all three** — of every problem where some
+candidate carried the property, selection kept it. The packet's stated worry
+("if selection isn't finding them, the rule is broken") is answered directly:
+the rule finds all of them, and `available` is a fact about the teacher.
+
+### F2c — audit: **PASS on all four pinned thresholds**
+
+**This sub-gate needed a correction that changes the verdict, and it is worth
+recording in full.** Pooling every judgment gives 44.3% faithful / 29.5% wrong
+(n = 4,695) — which would fail. That number is an artifact of how the golden
+filter samples: it walks a problem's candidates best-first and judges the next
+one **only when the previous failed**, so a problem resolving on attempt 1
+contributes one judgment while a problem taking five contributes four failures
+and one success. The pooled rate therefore measures *the search*, not the
+corpus, and is biased downward by construction.
+
+The corpus rate is the judgment on the trace selection actually picked, one per
+problem:
+
+| population | n | faithful | lossy | **wrong** |
+|---|---|---|---|---|
+| **all (selected winner)** | 1,744 | **70.7%** | 19.4% | **9.9%** |
+| easy band (L<6) | 933 | 84.2% | 13.6% | 2.1% |
+| hard band (L≥6) | 811 | **55.1%** | 26.0% | **18.9%** |
+
+Against the thresholds pinned at the Part-5 checkpoint and re-pinned in
+finding 13:
+
+| threshold | pinned | measured | |
+|---|---|---|---|
+| aggregate faithful | ≥ 70% | **70.7%** | ✅ |
+| aggregate wrong | ≤ 15% | **9.9%** | ✅ |
+| hard-band faithful | ≥ 35% | **55.1%** | ✅ |
+| hard-band wrong | ≤ 35% | **18.9%** | ✅ |
+
+Per level the gradient is steep and monotone — L1 90.5% faithful / 0.3% wrong,
+L5 69.1% / 6.4%, L8 41.7% / 27.5%, **L9 23.6% / 48.6%**. Reference: the 1.7B
+self-compressions judged 40% faithful / 21% wrong (005 f13), so the 32B beats
+that everywhere except level 9.
+
+Flags over winner judgments: `dropped_branch` is the dominant failure, matching
+findings 7–8.
+
+**Two coverage caveats that qualify this pass.** (i) Only **1,744 of 3,994**
+problems have a winner judgment, because the GLM quota ran out; the unjudged
+remainder is evenly spread across levels (32–38% at every level), so the
+estimate is unbiased but its coverage is 44%. (ii) Only source-bearing problems
+are judgeable under this rubric at all.
+
+**Reward-hacking eye (packet §10).** Restated-problem no-ops: not observed —
+`off_topic` 0.9%. Degenerate terseness: not observed — think median 189 tokens
+with a 122–365 IQR, and only 15 traces under 3 lines. Fluent filler **is**
+present and is the dominant failure mode at the hard tier — finding 10 shows
+G_spike *prefers* it, which is why it is the last criterion in the winner rule
+and why this audit is load-bearing rather than decorative.
+
+### F2d — dashboards: **PASS**
+
+[stagea_density_lengths.png](assets/008/stagea_density_lengths.png) ·
+[stagea_coverage_selection.png](assets/008/stagea_coverage_selection.png) ·
+[stagea_structural.png](assets/008/stagea_structural.png)
+
+| metric | value |
+|---|---|
+| symbol density (selected) | **2.449** markers/100 think chars (32B raw baseline 2.10) |
+| think tokens | median **189**, IQR [122, 365], p95 687 |
+| answer tokens | median **281**, p95 ~1,023 |
+| keeps per problem | 3,976 problems at 3; 8 at 2; 10 at 1 |
+| unserved | **6 / 4,000** (0.15%) |
+| selection reasons | 7,425 diverse runners-up, 1,621 verify-kept winners, 839 verify+branch winners, 359 branch-adding runners-up |
+
+Think and answer lengths are reported separately throughout, per the standing
+invariant.
+
+---
+
+## **F2 VERDICT: PASS** (F2a ✅ · F2b ✅ · F2c ✅ · F2d ✅)
+
+**P6 is unblocked.** The corpus is at
+`/data/whetstone/corpora/stagea_selected/selected.jsonl` with the handoff note
+at `STAGE_B_HANDOFF.md`.
+
+Passing is not the same as clean, and three qualifications travel with it:
+
+1. **F2c passes at 44% coverage**, not full coverage — the judge quota expired
+   with 1,360 problems never judged. The measured population is unbiased by
+   level, but the gate is an estimate.
+2. **Level 9 is bad and should be treated as such**: 23.6% faithful / 48.6%
+   wrong on its winner traces. Its 250 problems are 6% of the corpus, and Stage
+   B should either down-weight them or take them only from the golden subset.
+3. **The judge-filtered corpus is a deviation, not a default.** See below.
+
+---
+
 ## Conclusion
 
-*(pending — F2 verdict goes here)*
+Stage A produced the textbook. From 4,000 problems the frozen 32B teacher wrote
+33,640 drafts; 96.9% verified and gated clean; selection kept 11,954 traces over
+3,994 problems, capturing **100% of the available** verification, branch and
+register structure. **F2 passes on all four sub-gates.**
+
+**What the packet got wrong about generation, and what it cost to find out.**
+Three of this run's four largest interventions were corrections to the packet's
+generation design, each found by a smoke run costing minutes rather than by the
+24-hour run costing a day:
+
+* an instruction to think in the register **does not reach a thinking model's
+  scratchpad** (0.11 vs 2.10 markers/100 char) — fixed by prefilling
+  `<think>\ngoal:`;
+* prefilled, the model **imitates the card exemplars to their end** and never
+  closes the block (48% of drafts) — fixed by imposing the boundary in two-phase
+  generation;
+* the answer budget was **an artifact biasing against hard problems** (15.4%
+  cap-outs at level 6, 0% at level 1) while the think budget was signal — fixed
+  asymmetrically.
+
+**What the run established that the design did not know.**
+
+* **G_spike does not catch the failure it was designed to catch.** Asserted-crux
+  traces score ~1.9× *better* on it than genuinely derived ones, because
+  hand-waving is fluent and fluency is what the meter reads. Design §3.2's claim
+  that "a hallucinated or unsupported compact step is, by construction, a spike"
+  is false on this corpus. **This is the finding that most needs carrying into
+  Stage C**, where a G_spike-like term enters an optimiser and Goodhart pressure
+  stops being one-shot.
+* **The teacher confabulates when given the answer without the reasoning** —
+  hard-band `gold+trace` 57.1% faithful vs `gold`-only 10.5%, z = 5.27,
+  p < 1e-6. Acted on: the conditioning cap was raised 12,288 → 23,000 and 205
+  problems regenerated, moving 167 hard-band problems out of the bad cell.
+* **Structural retention is clustered per problem, so K is not a lever for it.**
+  P(≥1 branch-keeping draft) is 35.5% at K=8 where independence predicts 75.3%,
+  retiring activity 006's arithmetic. Temperature is a *modest* lever
+  (52.1% → 62.5% at T=1.0) but not a proven one (McNemar p = 0.227, n = 47).
+* **The teacher abandons the register on exactly the problems it exists for** —
+  54% of level-9 traces read as prose. Selection recovers 98.6% of problems, but
+  the underlying generation is weak there and a card revision should target it.
+* **Compression is flat in absolute terms** (compact output 300–434 tokens while
+  verbose input grows 7.5× across levels), so the rising ratio at hard levels is
+  truncation rather than compression — the same problems that show prose
+  reversion, assert-flagging and audit collapse.
+
+**Method note.** Six would-be false findings were caught by checks that existed
+before the number was believed: the structural gate silently having no source;
+`_uid` stripped from the selected corpus; a circular R_acc; the audit judging
+blank originals at 94.7% faithful; a progress counter that could never
+increment; and — the one that would have changed the verdict — the pooled
+audit rate of 44.3%, which measures the golden filter's retry walk rather than
+the corpus, against the true winner rate of 70.7%. The standing lesson from 007
+holds and extends: checking a number against a measurement whose answer is
+already known catches false *findings*; running the whole pipeline on 50 records
+catches false *plumbing*; and asking "what population is this rate over?"
+catches false *denominators*.
+
+### The golden corpus — an attested deviation
+
+At user direction (2026-08-04) the GLM judge was promoted from evaluator to
+**filter**, producing `/data/whetstone/corpora/stagea_golden/` — one certified
+trace per problem, **2,435 problems** (1,618 judged against their verbose
+source, 817 under a self-contained rubric), 174 problems exhausted, 1,360 never
+judged when the quota expired.
+
+This overrides `faithfulness_audit.py`'s own rule that a judge verdict must
+never filter training data. It is defensible — the central-model principle
+protects the *compressor*, which activity 006 already replaced with a 32B, so
+GLM choosing among 32B traces is a smaller deviation than GLM writing them — and
+it is motivated: ~10% of winner traces are judged wrong, i.e. correct answer
+with a fabricated derivation, which every automatic check in the pipeline
+passes. **The unfiltered corpus is kept intact as the control arm and must not
+be deleted**; the difference between Stage-B runs on the two is itself a
+measurement.
+
+93.3% of fully-judged problems yield a faithful trace, against a 70.7%
+per-winner rate — the retry walk over K=8 is what buys that, and it is the
+clearest demonstration in this packet that best-of-K works when the property is
+*not* problem-clustered.
+
+### What the next packet must know
+
+* **Stage B weights per problem, never per trace** (`n_kept` is sampling luck).
+  Written into `STAGE_B_HANDOFF.md`.
+* **The ZPD histogram exists** on every score record — but it was measured under
+  `scorer_v1`, which has had 91% of the register tax removed. It is a **lower
+  bound**; P6 must re-measure under the original checkpoint before pinning γ.
+* The student starts from the **original** checkpoint, never `scorer_v1`.
+* **Level 9 is the weak tier on every axis measured** — faithfulness, register
+  adherence, compression, branch retention. Treat it as a known deficiency
+  rather than discovering it again.
+* 1,360 problems still have unjudged candidates; the judgments log makes
+  resuming free whenever quota allows.
