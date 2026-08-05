@@ -43,6 +43,32 @@ from whetstone.round0 import BOUNDARY_IDS, build_completion_text, build_sequence
 from whetstone.verify import verify_response
 
 
+def replace_line_initial(text: str, pairs) -> tuple[str, int]:
+    """Rewrite line-initial ``old`` -> ``new`` in a think body.
+
+    The third candidate fix for finding 7 (user proposal 2026-08-05): instead of
+    deleting the unreachable label or flooring its weight, **replace it with the
+    opening the model natively writes**. Finding 9 established that the ~40-nat
+    cost is positional — after ``<think>\\n`` the original checkpoint expects its
+    own voice ("Okay, so I need to...") — so a natural opener should cost nearly
+    nothing and hand the trace a reachable entry point, with the register picking
+    up from the second token on.
+
+    ``pairs`` is an iterable of ``(old, new)``. Returns ``(text, n_replaced)``.
+    """
+    out, n = [], 0
+    for ln in text.split("\n"):
+        body = ln.lstrip()
+        indent = ln[: len(ln) - len(body)]
+        for old, new in pairs:
+            if body.startswith(old):
+                body = (new + " " + body[len(old):].lstrip()).strip()
+                n += 1
+                break
+        out.append(indent + body)
+    return "\n".join(out), n
+
+
 def strip_line_initial(text: str, markers) -> tuple[str, int]:
     """Drop line-initial ``marker:`` prefixes from a think body.
 
@@ -107,6 +133,14 @@ def build(args) -> dict:
     if markers:
         print(f"[stageb] STRIPPING line-initial markers {markers} from compact_think "
               "— the register's labels are removed, its content is kept", flush=True)
+    pairs = []
+    for spec in args.replace_markers.split(";"):
+        if "=" in spec:
+            old, _, new = spec.partition("=")     # first '=' only
+            pairs.append((old.strip(), new))
+    if pairs:
+        print(f"[stageb] REPLACING line-initial labels {pairs} in compact_think",
+              flush=True)
 
     seen = collections.Counter()
     out, failures = [], collections.Counter()
@@ -116,6 +150,9 @@ def build(args) -> dict:
         uid = r["_uid"]
         try:
             think_body = r["compact_think"]
+            if pairs:
+                think_body, k = replace_line_initial(think_body, pairs)
+                n_stripped += k
             if markers:
                 think_body, k = strip_line_initial(think_body, markers)
                 n_stripped += k
@@ -216,6 +253,10 @@ def parse_args(argv=None):
                          "from compact_think, e.g. 'goal:' or 'goal:,chk:'. The "
                          "alternative to the whitelist floor: drop the "
                          "unreachable label, keep the content it labelled.")
+    ap.add_argument("--replace-markers", default="",
+                    help="semicolon-separated 'old=new' rewrites of line-initial "
+                         "labels, e.g. 'goal:=Okay,'. Split on the FIRST '=' so "
+                         "the replacement may contain commas and equals signs.")
     ap.add_argument("--limit", type=int, default=0, help="smoke tests only")
     return ap.parse_args(argv)
 
