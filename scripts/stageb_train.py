@@ -275,7 +275,10 @@ def parse_args(argv=None):
                          "for round 1 this equals --init")
     ap.add_argument("--round", type=int, required=True)
     ap.add_argument("--out-dir", required=True)
-    ap.add_argument("--val-pool", default="/data/whetstone/data/pool/val.jsonl")
+    ap.add_argument("--val-pool", default="/data/whetstone/data/pool/val_2k.jsonl",
+                    help="held-out problems for the generative spot-check. Must "
+                         "exist: a missing pool silently removes the only "
+                         "generative signal in the run.")
 
     ap.add_argument("--epochs", type=float, default=2.0)
     ap.add_argument("--lr", type=float, default=2e-5)
@@ -365,11 +368,17 @@ def main(argv=None) -> int:
 
     rng = np.random.default_rng(args.seed)
     control = [recs[i] for i in rng.permutation(len(recs))[: args.n_control]]
-    val = [json.loads(l) for l in open(args.val_pool)][: args.n_spot] \
-        if os.path.exists(args.val_pool) else []
+    # Loud, not silent. An earlier default pointed at a path that did not exist
+    # and the run quietly lost its only generative signal -- the exact class of
+    # failure this packet keeps guarding against.
+    if not os.path.exists(args.val_pool):
+        raise SystemExit(f"--val-pool not found: {args.val_pool}")
+    val = [json.loads(l) for l in open(args.val_pool)][: args.n_spot]
     spot_probs = [v["prompt"] for v in val]
-    print(f"[eval] control slice {len(control)} seqs | spot-check {len(spot_probs)} problems",
-          flush=True)
+    if not spot_probs:
+        raise SystemExit(f"--val-pool has no usable 'prompt' rows: {args.val_pool}")
+    print(f"[eval] control slice {len(control)} seqs | spot-check {len(spot_probs)} "
+          f"problems from {args.val_pool}", flush=True)
 
     theta0 = torch.cat([p.detach().float().reshape(-1)[::997]
                         for p in model.parameters()]).clone()
