@@ -43,6 +43,38 @@ from whetstone.round0 import BOUNDARY_IDS, build_completion_text, build_sequence
 from whetstone.verify import verify_response
 
 
+def strip_line_initial(text: str, markers) -> tuple[str, int]:
+    """Drop line-initial ``marker:`` prefixes from a think body.
+
+    The alternative to the register-whitelist floor (activity 009 finding 7,
+    user proposal 2026-08-05): rather than force-teaching a token 40 nats outside
+    the student's reach, remove it and let the model learn to *state the goal*
+    without the label. Measured support — the ``goal`` token costs 40.08 nats
+    mean while the goal statement that follows it costs **1.40** (p50 0.00,
+    2.4% masked), so the semantics are already learnable and only the literal
+    marker is not.
+
+    Line-initial only. ``goal:`` is line-initial 2,424 times against 5 mid-line
+    and ``chk:`` 1,816 against 42, so this is near-total for those two; ``⇒`` is
+    genuinely mixed (3,161 line-initial, 3,911 mid-line) and its mid-line use is
+    already learnable at w 1.72, which is why stripping is offered per-marker
+    rather than for the whole card.
+
+    Returns ``(text, n_stripped)``.
+    """
+    out, n = [], 0
+    for ln in text.split("\n"):
+        body = ln.lstrip()
+        indent = ln[: len(ln) - len(body)]
+        for m in markers:
+            if body.startswith(m):
+                body = body[len(m):].lstrip()
+                n += 1
+                break
+        out.append(indent + body)
+    return "\n".join(out), n
+
+
 def _assert_no_boundary_tokens(tokenizer, uid: str, field: str, text: str) -> None:
     """Refuse text of ours that encodes a `<think>`/`</think>`/`<|im_*|>` token.
 
@@ -71,21 +103,30 @@ def build(args) -> dict:
     print(f"[stageb] {len(n_kept)} problems; {multi} with >1 trace "
           f"(max {max(n_kept.values())}) -> weight = 1/n_kept", flush=True)
 
+    markers = [m.strip() for m in args.strip_markers.split(",") if m.strip()]
+    if markers:
+        print(f"[stageb] STRIPPING line-initial markers {markers} from compact_think "
+              "— the register's labels are removed, its content is kept", flush=True)
+
     seen = collections.Counter()
     out, failures = [], collections.Counter()
-    think_toks = answer_toks = 0
+    think_toks = answer_toks = n_stripped = 0
 
     for r in rows:
         uid = r["_uid"]
         try:
-            _assert_no_boundary_tokens(tokenizer, uid, "compact_think", r["compact_think"])
+            think_body = r["compact_think"]
+            if markers:
+                think_body, k = strip_line_initial(think_body, markers)
+                n_stripped += k
+            _assert_no_boundary_tokens(tokenizer, uid, "compact_think", think_body)
             _assert_no_boundary_tokens(tokenizer, uid, "answer", r["answer"])
 
             seq = build_sequence(
                 tokenizer,
                 uid=uid,
                 problem=r["prompt"],
-                think_body=r["compact_think"],
+                think_body=think_body,
                 answer=r["answer"],
                 level=int(r.get("level", 0)),
                 require_gate=True,          # g=0 is a build error here, not a filter
@@ -93,7 +134,7 @@ def build(args) -> dict:
 
             # The corpus is certified; a verifier failure means THIS assembly is
             # wrong (wrong field, wrong join), not that the corpus is bad.
-            completion = build_completion_text(r["compact_think"], r["answer"])
+            completion = build_completion_text(think_body, r["answer"])
             if not verify_response(completion, r["ground_truth"]):
                 raise ValueError("verify_response failed on a certified record")
         except (ValueError, KeyError) as e:
@@ -141,6 +182,8 @@ def build(args) -> dict:
         "failure_reasons": dict(failures),
         "think_tokens_total": think_toks,
         "answer_tokens_total": answer_toks,
+        "strip_markers": markers,
+        "markers_stripped": n_stripped,
         "weight_sum": round(sum(r["weight"] for r in out), 4),
         "records_by_level": dict(sorted(by_level.items())),
         "think_tokens_by_level": dict(sorted(tok_by_level.items())),
@@ -168,6 +211,11 @@ def parse_args(argv=None):
     ap.add_argument("--out", required=True)
     ap.add_argument("--tokenizer", default="Qwen/Qwen3-1.7B",
                     help="ORIGINAL checkpoint's tokenizer — never scorer_v1's")
+    ap.add_argument("--strip-markers", default="",
+                    help="comma list of line-initial register labels to remove "
+                         "from compact_think, e.g. 'goal:' or 'goal:,chk:'. The "
+                         "alternative to the whitelist floor: drop the "
+                         "unreachable label, keep the content it labelled.")
     ap.add_argument("--limit", type=int, default=0, help="smoke tests only")
     return ap.parse_args(argv)
 
