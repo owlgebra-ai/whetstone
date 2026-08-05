@@ -231,6 +231,54 @@ Plots: [`zpd_gamma.png`](assets/009/zpd_gamma.png),
 - gotcha for the next agent: **matplotlib is on turing only** — neither spark venv
   has it. Gate scoring runs on spark, plotting on turing, both off `/data`.
 
+### Run 5 — Part 4: the trainer (`8668c13`, GPU-blocked pending Run 3)
+
+`whetstone/zpd.py` (new) holds the band-pass formula, its masked-fraction
+threshold and the sequence normalizer; `stageb_pin_gamma.py` and
+`stageb_train.py` both import it. Verified the refactor reproduces Run 4's
+numbers bit-for-bit (masked 2.09%, structural mean w_t 1.323, branch 43.8%).
+
+`scripts/stageb_train.py` (new). Pinned decisions, recorded because the packet
+asked for them explicitly:
+
+- **CE over all completion tokens; SED over think tokens only.** The student has
+  to learn to write the answer segment too, while entropy restoration is a
+  reasoning-channel job (design §4.2).
+- Per-sequence normalization by `Σw` with the `0.25·n_completion` floor.
+  **The floor binds on 0 / 2,414 sequences** — independent confirmation that γ
+  is not mis-set for this corpus (finding 4).
+- Numerics: fp32 master weights, bf16 autocast, `AdamW8bit`, LR 2e-5, warmup 30,
+  cosine, accum 8, grad checkpointing. `theta_drift_rel == 0` after step 2 raises
+  rather than warns.
+- EMA cadence is *checked*, not trusted: every eval compares `sed.n_syncs`
+  against `step // sync_every` and shouts if micro-batches are being counted.
+
+Two efficiency choices that were correctness choices in disguise:
+
+- CE runs **inside** the autocast block through `F.cross_entropy` rather than
+  `log_softmax` + `gather`. Identical fp32 arithmetic (`cross_entropy` is on
+  autocast's fp32 list), but the fused kernel recomputes in backward instead of
+  saving an `(N, 151936)` fp32 log-softmax — **1.7 GB of activation for a single
+  sequence** on this corpus's longest record (2,830 completion tokens).
+- The generative spot-check batches with **left padding** on its own coarser
+  cadence (`--spot-every 100` vs `--eval-every 25`), toggling `use_cache` and
+  gradient checkpointing around the call. One-at-a-time it is ~30 min *per eval*
+  before assimilation, when every rollout still runs to the 2,048 cap.
+
+**F3d leakage detection is register-specific** — `goal:`, `chk:`, `⇒`, `✗` — not
+the full marker set, because `case` is an English word appearing in 10.2% of the
+corpus's own answers (finding 1). A bare substring count would fail F3d on prose.
+
+Guards verified on CPU before spending GPU time:
+
+| guard | result |
+|---|---|
+| gate sidecar π_S = `Qwen/Qwen3-1.7B`, round 1 | **passes** (sha `64739e94b69fddda`) |
+| π_S = `scorer_v1` | **refused** — STALE GATES |
+| π_S = `Qwen/Qwen3-4B` | **refused** — STALE GATES |
+| `train.jsonl` edited after gates were built | **refused** — length mismatch |
+| record load | 2,414 seqs; w over 1,916,972 completion tokens, mean 1.1619, p50 0.9999, 0.75% masked, 2.05% at the novelty peak; per-problem weights all 1.0 |
+
 ## Conclusion
 
 (pending — F3 verdict)
