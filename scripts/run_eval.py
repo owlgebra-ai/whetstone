@@ -108,6 +108,13 @@ def _verdict(rec: dict, completion: str) -> dict:
     return {"correct": None, "verifier": verifier}
 
 
+#: Register markers that must not appear in the answer segment (F3d). Kept
+#: register-SPECIFIC on purpose: the full marker set includes `case`, an English
+#: word that sits in 10.2% of the Stage-A corpus's own answers (activity 009
+#: finding 1), so a broader list would fail the gate on ordinary prose.
+ANSWER_LEAK_MARKERS = ("goal:", "chk:", "⇒", "✗")
+
+
 def _segment_stats(token_ids, blank_ids) -> dict:
     """`(think_len, answer_len, g, reason)` for one generation's token ids.
 
@@ -121,9 +128,11 @@ def _segment_stats(token_ids, blank_ids) -> dict:
         m = parse_segments(list(token_ids), prompt_len=0, blank_token_ids=blank_ids)
     except ValueError as e:  # multi-turn assert — a template bug, not a bad rollout
         return {"think_tokens": None, "answer_tokens": None, "g": 0,
-                "gate_reason": f"parse_error:{e.__class__.__name__}"}
+                "gate_reason": f"parse_error:{e.__class__.__name__}",
+                "answer_start": 0, "answer_end": 0}
     return {"think_tokens": m.think_len, "answer_tokens": m.answer_len,
-            "g": m.g, "gate_reason": m.reason}
+            "g": m.g, "gate_reason": m.reason,
+            "answer_start": m.answer_start, "answer_end": m.answer_end}
 
 
 def _median(xs):
@@ -214,6 +223,7 @@ def _eval_suite(suite_path: str, tokenizer, llm, args, blank_ids=frozenset()) ->
     n_cap_hit = 0
     n_g_ok = 0
     n_gen = 0
+    n_leak = 0
     think_ok, answer_ok, think_all, answer_all = [], [], [], []
 
     for rec, out in zip(rows, outs):
@@ -241,6 +251,13 @@ def _eval_suite(suite_path: str, tokenizer, llm, args, blank_ids=frozenset()) ->
             if seg["g"] == 1:
                 think_ok.append(seg["think_tokens"])
                 answer_ok.append(seg["answer_tokens"])
+                # Answer segment only, decoded from token ids so the split is
+                # the parser's, not a string search for "</think>".
+                atxt = tokenizer.decode(
+                    list(cand.token_ids)[seg["answer_start"]:seg["answer_end"]])
+                leaked = any(k in atxt for k in ANSWER_LEAK_MARKERS)
+                verdicts[-1]["answer_leak"] = leaked
+                n_leak += int(leaked)
         any_correct = any(v["correct"] for v in verdicts)
         at1_correct = bool(verdicts[0]["correct"]) if verdicts else False
         if not is_lean:
@@ -287,6 +304,10 @@ def _eval_suite(suite_path: str, tokenizer, llm, args, blank_ids=frozenset()) ->
         "answer_tokens_median_all": _median(answer_all),
         "cap_hit_rate": (n_cap_hit / n_gen) if n_gen else None,
         "g_rate": (n_g_ok / n_gen) if n_gen else None,
+        # F3d. Denominator is g=1 generations: a malformed rollout has no
+        # locatable answer segment to leak into.
+        "answer_leak_rate": (n_leak / n_g_ok) if n_g_ok else None,
+        "answer_leak_markers": list(ANSWER_LEAK_MARKERS),
         "n_generations": n_gen,
         "segment_median_population": "g==1 generations only; *_median_all spans every generation",
         # --- retained for continuity with pre-009 runs ------------------------
