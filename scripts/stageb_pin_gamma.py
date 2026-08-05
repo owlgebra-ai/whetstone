@@ -154,7 +154,9 @@ def main() -> int:
     out = {
         "gamma_pinned": pinned,
         "kappa": KAPPA, "alpha_nov": ALPHA_NOV, "s_cap": S_CAP,
-        "gate_lt_0.1_at_S_above": round(-pinned - math.log(0.9 / 0.1) / KAPPA, 4),
+        # gate = sigmoid(k(-S - gamma)) < 0.1  <=>  -S - gamma < ln(1/9)
+        #                                     <=>  S > -gamma + ln(9)/k
+        "gate_lt_0.1_at_S_above": round(-pinned + math.log(9.0) / KAPPA, 4),
         "nov_gt_1.2_at_S_above": round(0.2 / ALPHA_NOV, 4),
         "think_overall": overall,
         "think_per_level": per_level,
@@ -205,7 +207,7 @@ def _plots(S, per_level, markers, gamma, out_dir):
     fig, axes = plt.subplots(1, 2, figsize=(13, 4.6))
     ax = axes[0]
     ax.hist(np.clip(S, 0, 20), bins=120, color="#4C72B0", log=True)
-    thr = -gamma - math.log(9.0)
+    thr = -gamma + math.log(9.0)
     ax.axvline(thr, color="#C44E52", ls="--",
                label=f"gate<0.1 at S={thr:.2f}")
     ax.axvline(0.4, color="#55A868", ls=":", label="boost starts S=0.4")
