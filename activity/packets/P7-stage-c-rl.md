@@ -1,6 +1,6 @@
 # P7 — Stage C: segment-routed DAPO recovery RL (two phases + pilot) and the F4 gate
 
-STATUS: ready
+STATUS: in-progress (activity 010)
 MACHINES: **spark = trainer** (fp32 AdamW, unified memory); **turing = rollout server + π_0 anchor server** (user topology decision 2026-08-05, validated by the Part-2 pilot); GLM API (memorization spot-checks + rescue filter)
 DEPENDS ON: P6/activity 009 (round-1 checkpoint, pass@8 evidence); P5 machinery (32B rescue generation); P4 (`whetstone/segments.py`, reward infra)
 BLOCKS: P8 final comparisons
@@ -142,6 +142,13 @@ Run Phase-1 config for 50–100 optimizer steps. Deliverables, all go/no-go:
 **Only on a clean pilot** does Phase 1 continue past step 100.
 
 ## 8. Part 3 — Phase 1: recovery (the 4,000 set)
+
+**Batch curriculum (user direction 2026-08-05, refined): success-rate-ordered, saturation-paced.** Batches sample from the mixed-group (1–7/8) pool with weights tilted by measured pass rate, NOT by level label and NOT on a step schedule:
+
+- **Early: ~75% from the p̂ ≥ 5/8 bucket** (empirically this is mostly GSM8K/level-1 — the user's easy-first intent, delivered by measurement), **~25% from lower buckets** — never 0%, because the loop tail lives on hard problems and the g=0-vs-r_fmt within-group contrast is the gradient that extinguishes it; a pure-easy diet postpones the cure.
+- **Progression is saturation-driven:** problems that reach 8/8 auto-drop (dynamic sampling); re-tilt the weights at every 25-step eval from the live per-bucket mixed fractions — when the easy tier's mixed share falls below ~⅓, shift the tilt one bucket down. No fixed switch step: the buckets know whether "step 15" is too early or too late.
+- 0/8 problems stay out of batches entirely (rescue's clientele, Part 5); difficulty amplification (W(x), positive think advantages) is the late-curriculum instrument on the low-p̂ buckets.
+- Log per-bucket: batch share, advantage variance, loop rate — if the pilot shows low-p̂ groups injecting outsized variance early, tighten the early tilt and record it.
 
 Continue to the phase endpoint. Cadence: cheap continuity every 25 steps; 200-screen (K=8, strict+as-scored) every 100; checkpoints every 25 (~3.4 GB each — prune losers after endpoint selection). **Endpoint = accuracy × tokens-per-correct Pareto frontier** (v1 §7.9), with v1's expectation that over-training past ~80% of steps is the failure mode — TEA moving that boundary later is itself a measurable claim; measure it.
 
