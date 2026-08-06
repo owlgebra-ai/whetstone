@@ -854,6 +854,33 @@ actually share the protection. Uniform would be 894,860.)
 > about the magnitude/coverage distinction — a loss term's scalar value says
 > nothing about how many parameters it moves.
 
+> **Finding 20 — the pilot's apparent accuracy decline is a sampling artifact,
+> and the answer segment is NOT collapsing.** Two checks that would each have
+> been misread from the curves alone.
+>
+> *Accuracy.* Ten-step window means fall 0.534 → 0.585 → 0.560 → 0.530 →
+> **0.491**, which reads as decay. It is not: `corr(batch mean p̂, acc_rate) =
+> **+0.770**` and the mean absolute gap between a step's accuracy and its
+> batch's own mean p̂ is **0.050**. Accuracy is tracking *which problems were
+> drawn*. The "trend" `corr(step, acc) = −0.204` is fully accounted for by
+> `corr(step, batch mean p̂) = −0.422` — sampling drift, not policy decay. And it
+> is not the curriculum hardening by design either: after 50 steps only **200 of
+> 3,184 problems (6.3%) have been drawn at all**, **14 retired**, and **0 tilt
+> shifts**, so the pool has barely moved.
+>
+> *Answer length — the round-2 collapse watch.* Window means 379 → 294 → 352 →
+> 333 → 354, `corr(step, answer_median) = **−0.008**`, first-5 330 → last-5 352,
+> against a **288** baseline. The single 108 at step 50 is the run's minimum and
+> one step wide. Activity 009's round-2 collapse (288 → **19**, −93%) is **not**
+> recurring: the SCA answer band in the scalar reward and the forward-KL to π_0
+> on answer tokens (`kl.mean` stable at 0.175 → 0.213) are holding the segment
+> where they were designed to.
+>
+> Together with finding 14 this is now a general statement about this run:
+> **at 4 problems/step, neither accuracy nor either length median can support a
+> trend claim.** Only the fixed 200-problem screen can, which is exactly what F4
+> clause 2 is defined on.
+
 ---
 
 ## Status at 2026-08-05 21:00
