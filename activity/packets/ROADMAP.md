@@ -364,9 +364,27 @@ Suite roles — three tiers with different touch frequencies, so headline number
 - **Pinned: τ_spike = 2.25, τ_leap = 3.175, κ_max = 0.3174, ε = 0.2, γ_e = 1.0,
   entropy floor x = 10% (cannot fire — see below).** S2's noise floor is
   **0.00094** (π_0 scored against its own cache), and κ_max is in those units.
-- **`scorer_v1` = Round-0 step 20 — user-ratified 2026-08-04**, frozen at `/data/whetstone/ckpt/scorer_v1`,
-  **serving on `spark:8100` as `whetstone-scorer`**; d_t contract re-verified
-  over HTTP (4,932/4,932 positions, all 4,188 rank-1 positions exactly 0).
+- **`scorer_v1` = Round-0 step 20 — user-ratified 2026-08-04**, frozen at
+  `/data/whetstone/ckpt/scorer_v1`. **Served on `spark:8100` as
+  `whetstone-scorer`** — but that is *process state, not a durable fact*: the
+  instance is **not persistent** and has gone down at least once between
+  packets (2026-08-05, clean shutdown, spark not rebooted). **Check it is alive
+  before every scoring pass and relaunch if needed:**
+
+  ```bash
+  # on spark — verify, then relaunch if dead
+  curl -s -m 5 http://127.0.0.1:8100/v1/models
+  cd ~/workspace/whetstone-scorer && source .venv/bin/activate
+  VLLM_USE_FLASHINFER_SAMPLER=0 setsid nohup vllm serve /data/whetstone/ckpt/scorer_v1 \
+    --port 8100 --host 0.0.0.0 --gpu-memory-utilization 0.35 --max-model-len 8192 \
+    --served-model-name whetstone-scorer > /tmp/scorer_v1_serve.log 2>&1 < /dev/null &
+  ```
+
+  Use `setsid` (and `< /dev/null`): a bare `nohup … &` inside an `ssh` one-liner
+  does **not** outlive the ssh channel teardown, which is how activity 007's
+  instance died. The d_t contract was re-verified over HTTP when it was up
+  (4,932/4,932 positions, all 4,188 rank-1 positions exactly 0) — re-run
+  `.scratch/contract.py` after any relaunch rather than assuming.
   Chosen on design §2's "smallest dose": step 80 removes 3% more tax for 2.3× the
   KL drift and 40× the boundary damage. Non-winner checkpoints are **kept** under
   `/data/whetstone/ckpt/round0/` (50 GB, free to delete); if pruning, keep
