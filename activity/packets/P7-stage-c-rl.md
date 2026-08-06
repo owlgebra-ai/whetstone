@@ -1,6 +1,6 @@
 # P7 — Stage C: segment-routed DAPO recovery RL (two phases + pilot) and the F4 gate
 
-STATUS: in-progress (activity 010)
+STATUS: blocked (F4 FAILED — activity 010; Parts 0–2 done, Parts 3–5 blocked on the entropy-ceiling fix)
 MACHINES: **spark = trainer** (fp32 AdamW, unified memory); **turing = rollout server + π_0 anchor server** (user topology decision 2026-08-05, validated by the Part-2 pilot); GLM API (memorization spot-checks + rescue filter)
 DEPENDS ON: P6/activity 009 (round-1 checkpoint, pass@8 evidence); P5 machinery (32B rescue generation); P4 (`whetstone/segments.py`, reward infra)
 BLOCKS: P8 final comparisons

@@ -1,9 +1,9 @@
 # 010 — Stage C: segment-routed DAPO recovery RL
 
 - **Packet:** [packets/P7-stage-c-rl.md](packets/P7-stage-c-rl.md)
-- **Status:** in-progress
+- **Status:** done — **F4 FAILS** (both clauses); Phase 1 blocked pending the entropy-ceiling fix
 - **Machine(s):** mac (code) / turing (rollouts + π_0 anchor) / spark (trainer)
-- **Code commit(s):** `624c8b8` (packet claim) →
+- **Code commit(s):** `624c8b8` (packet claim) → `f36de06` … HEAD
 - **Started:** 2026-08-05
 
 ## Goal
