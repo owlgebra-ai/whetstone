@@ -1,0 +1,50 @@
+{
+  "criterion": "strict Pass@1 > init AND think median <= init (packet P7 \u00a77.2)",
+  "init": {
+    "strict_p1": 0.6425,
+    "think_median": 218.0
+  },
+  "checkpoints": [
+    {
+      "name": "step0020",
+      "strict_p1": 0.655,
+      "as_scored_p1": 0.665,
+      "think_median": 222,
+      "answer_median": 194,
+      "pass_at_k": 0.94,
+      "cap_hit": 0.023125,
+      "g_rate": 0.963125,
+      "lenient_only": 0.01375,
+      "mixed_frac": 0.675,
+      "is_init": false
+    },
+    {
+      "name": "step0040",
+      "strict_p1": 0.63,
+      "as_scored_p1": 0.64,
+      "think_median": 224,
+      "answer_median": 200,
+      "pass_at_k": 0.955,
+      "cap_hit": 0.029375,
+      "g_rate": 0.960625,
+      "lenient_only": 0.0125,
+      "mixed_frac": 0.675,
+      "is_init": false
+    },
+    {
+      "name": "step0060",
+      "strict_p1": 0.69,
+      "as_scored_p1": 0.7,
+      "think_median": 235,
+      "answer_median": 214,
+      "pass_at_k": 0.935,
+      "cap_hit": 0.021875,
+      "g_rate": 0.965625,
+      "lenient_only": 0.015625,
+      "mixed_frac": 0.715,
+      "is_init": false
+    }
+  ],
+  "pareto_dominating": [],
+  "f4_clause2_pass": false
+}
