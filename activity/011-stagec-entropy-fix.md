@@ -162,6 +162,88 @@ f17): if the screen shows a checkpoint with strict Pass@1 up at ≤219 think
 median, Arm A PASSES and the diagnosis (entropy ceiling via symmetric
 clipping alone) is confirmed end to end.
 
+### Run 4 — 2026-08-06 11:35, the F4 re-gate (all screens one harness session)
+
+`stagec_f4_regate.py`: init + step0025/50/75/100, 200 GSM8K problems, T=0.7 /
+top-p 0.95, K=8, cap 8,192. Init **re-screened**, never quoted (010 f22).
+
+| arm | strict P@1 (8-draw) | think med | ans med | pass@8 | g | think-per-correct† | ΔP@1 (paired) | McNemar z, p |
+|---|---|---|---|---|---|---|---|---|
+| **init** | 66.75% ± 1.25 | **219** | 190 | 94.00% | 95.94% | 840 | — | — |
+| step0025 | 66.94% ± 1.24 | 220 | 201 | 94.50% | 96.00% | 820 | +0.19 | +0.18, 0.853 |
+| step0050 | 68.88% ± 2.03 | 222 | 222 | 93.50% | 96.50% | 784 | +2.12 | +1.80, 0.072 |
+| step0075 | 71.12% ± 2.94 | 227 | 244 | 94.50% | 96.50% | 711 | +4.37 | **+3.64, <0.001** |
+| **step0100** | **71.62% ± 2.46** | 228 | 248 | 94.00% | 96.19% | **623** | **+4.87** | **+4.01, <0.001** |
+
+† this journal's think-per-correct = total think tokens across all 1,600
+rollouts / strict-correct count (a cost-per-correct). **Not comparable to
+010's "331→367"**, which was think-median/Pass@1 — different statistic, same
+direction of meaning. Within this table the init is the same-session
+comparator, so the 840 → 623 (−26%) trend is internally valid.
+
+Note the init re-screen read 66.75% ± 1.25 against 010's 66.25% ± 1.46 on the
+identical protocol — half a point of between-session drift on the same
+checkpoint, which is itself the argument for same-session comparators.
+
+**The verdict, stated precisely:**
+
+- **Clause 1 — PASS.** No named failure worsens across step windows at the
+  training sampler; the two watched ones *improve* (mtc 7.5%→3.9%, H
+  1.22→0.99, g(all) 0.925→0.955, stutter flat, answer-KL bounded declining).
+- **Clause 2, by the letter — not met.** No checkpoint holds think median ≤
+  219; the strict-Pareto row does not exist. But the letter was written
+  against pilot 1's failure quadrant (accuracy *down*, think *up*,
+  think-per-correct *up*). Arm A sits in a quadrant the criterion never
+  anticipated: **strict Pass@1 +4.87 pts (monotone in step, McNemar p <
+  0.0001), think median +9 tokens (+4.1%), think-per-correct −26%,** pass@8
+  held, eval g-rate held. The +9 think creep is priced against a 7.3%
+  relative accuracy gain; the Phase-1 endpoint criterion (accuracy ×
+  tokens-per-correct Pareto, v1 §7.9) ranks every RL checkpoint above the
+  init.
+- **Arm verdict: CONTINUE (user directive 2026-08-06: "if there is
+  improvement, continue the RL run to 350–400 steps").** The strict Pareto
+  question is re-adjudicated at the Phase-1 endpoint, where the annealed
+  budget (B at its 120 floor since ~step 50, group-relative via the
+  `effective_B` spread floor) has had time to press think back down. Alarm
+  condition for the continuation: **think median still rising while ΔP@1
+  plateaus** — that is the drift clause 2 exists to catch.
+
+Entropy at the eval protocol confirms the training-sampler read: between-draw
+std ±1.25 → ±2.46 (grew less than pilot 1's ±1.46 → ±2.93 at 60 steps despite
+100 steps and a 4.9-pt mean shift).
+
+### Run 5 — 2026-08-06, rollout scan (6,400 rollouts) + two more detector defects
+
+`stagec_rollout_scan.py` (validated against pilot 1 first: reproduces mtc
+5.0→33.8% and the strict decay 59→42%). Arm A, 20-step windows: every rot
+pattern extinct or falling — empty think 0.00% everywhere, loops ≤1.8%
+falling, `case N:` enumeration ≤0.16%→0, chk-chains 0, cap-hit ≤0.94%,
+mtc 7.11%→3.75%, **strict-correct at the training sampler 59.8%→75.0%**.
+
+Two detectors flagged rollouts at rates worth reading (register_leak
+0.94%→**3.83% rising**; answer_repeat ~9% flat), and the verbatim dumps showed
+**both are finding-15-class false positives on honest mathematical English**:
+
+- **register_leak**: every read sample was a clean LaTeX answer opening a line
+  with capitalized **`Let:`** — mathematical prose scaffolding, not the
+  register's strictly-lowercase `let:` binder. `_LEAK_LINE_RE` carried
+  `re.IGNORECASE`; the "rise" tracks answers growing toward the 288-token
+  band (more structured prose → more `Let:` headers), not register leakage.
+  **Fixed: case-sensitive** (`144f3a7`), regression fixtures from the dumps.
+- **answer_repeat**: fired on consecutive `$$` display-math blocks separated
+  by a blank line — LaTeX typesetting, not v1 §4.6's `151\n\n151`
+  restatement. Flat ~9% in pilot 1 AND Arm A = a base rate of honest
+  formatting. **Fixed: repeated token must contain a word character**; bare
+  numeral/boxed restatement asserted still firing. Battery 140 green.
+
+Both fixes lower penalties on *correct* answers by up to ~0.20 of 1.35 and
+land for the continuation (imported at trainer start), attested here.
+Contradiction firings (~2–2.8% flat) were read too: mostly **true
+positives** — T=1.0 think blocks reaching wrong conclusions while the answer
+recovers, which is precisely the derivation-vs-luck signal the 0.20 penalty
+exists for; one marginal case (extractor grabbing a verification-chain
+intermediate) noted, detector left unchanged.
+
 ## Conclusion
 
-(TBD)
+(TBD — continuation to ~400 steps + primary-suite diagnostics in progress)
