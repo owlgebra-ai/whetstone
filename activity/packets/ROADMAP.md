@@ -210,6 +210,20 @@ Suite roles — three tiers with different touch frequencies, so headline number
   24.0 pts vs 4.4. Caveats: GSM8K is the easy tier and that is why the baseline
   saturates (re-measure on MATH-500 before quoting 7.9× generally); pass@8 does not
   promise pass@1; 9.5% sit at 0/8 and need pedagogy rescue.
+- **The pass@8 figure survives a strict re-grade: 89.50% (as-scored 90.50%)**, with
+  only 2/200 problems solved by leniency alone, so the RL-headroom claim does not
+  rest on `verify.py`'s bug. Of the 36/1,600 lenient candidates, **4 are runaway
+  generations whose scratchpad contained the right answer** — the model knew it and
+  could not stop — and 2 are genuine suffix misgrades. The 0/8 bucket was checked
+  verbatim and is real (gold 70000 answered 120000, i.e. new value not profit).
+- **Correct rollouts are SHORTER than incorrect ones** — think p50 **196.5 vs
+  276.0**, mean **263.2 vs 481.3** (1.8×), same direction for answers and totals.
+  **Stage C's length pressure and accuracy pressure therefore agree**; the feared
+  case (RL rewarding length and unwinding compression) does not apply to this
+  student. Runaway length *is* the failure mode. Additionally, **within-group
+  length spread tracks unreliability** (8/8 problems span 122–201; sometimes-solved
+  problems span 291–1630), so it is a free difficulty signal for P7's curriculum
+  bucketing.
 - **P7 is therefore DEFENSIBLE on the round-1 checkpoint** (not round 2, which is
   worse on every axis). F3's breached accuracy floor goes to design review rather
   than blocking. An earlier reading of this run said "P7 must not proceed"; that was

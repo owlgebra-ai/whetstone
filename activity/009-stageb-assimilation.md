@@ -770,6 +770,66 @@ and Stage C is the stage built for that. **Proceeding to P7 on the round-1
 checkpoint is defensible**, with F3's breached accuracy floor going to design
 review rather than blocking outright.
 
+### Run 13 — verifier audit of the pass@8 run, and the length-vs-correctness result
+
+Run 12's headline was re-graded strictly (exact + numeric only, **and no
+extraction at all when `</think>` never closed**) because finding 15 makes any
+as-scored figure suspect until checked.
+
+| | as-scored | **strict** | delta |
+|---|---|---|---|
+| Pass@1 | 66.50% | **64.25%** | −2.25 |
+| pass@8 | 90.50% | **89.50%** | −1.00 |
+
+**pass@8 survives** — only **2 / 200** problems are solved by leniency alone, so
+finding 16's RL-headroom conclusion stands on the strict number too.
+
+The 36 / 1,600 lenient candidates split into two kinds, and the split matters:
+
+* **4 are `missing_think_close`** with the *correct* answer sitting in the
+  scratchpad (gold 460→460, 243→243, 16→16, 75→75). The model knew the answer and
+  could not stop talking. Strict counts them wrong — correctly: **the model never
+  delivered an answer.** These are finding 14's loops, not grading noise.
+* **2 are genuine suffix misgrades** — gold `200` extracted `1200`, gold `20`
+  extracted `0`.
+
+**Gradings were eyeballed verbatim, not trusted.** Six strict-correct cases show
+real reasoning and the right value (`gsm8k_test:0`, gold 18: *"16 eggs per day…
+eats 3, leaving 13… uses 4, leaving 9… 9 × $2"*). Four 0/8 problems are genuine
+reasoning failures, not extraction failures — gold 70000 answered **120000** (new
+value, not profit), gold 160 → 100, gold 45 → 315, gold 15 → `\dfrac{74}{3}`.
+**The 0/8 bucket is real.**
+
+*Method note:* the first audit printed nonsense answer text (`'is subtracted.\n3.
+The remainder is…'`) because it sliced the **string** with `answer_start` /
+`answer_end`, which are **token** indices. The grading was never affected; the
+display was. Re-done with a `</think>` string split.
+
+> **Finding 17 — correct rollouts are SHORTER than incorrect ones, so Stage C will
+> reinforce compression rather than unwind it.** Strict grading, g=1 only:
+>
+> | | think p50 | think mean | answer p50 | total p50 | total mean |
+> |---|---|---|---|---|---|
+> | **correct** (n=1,028) | **196.5** | **263.2** | 170 | 363 | 439.9 |
+> | **incorrect** (n=507) | **276.0** | **481.3** | 245 | 540 | 739.3 |
+>
+> Correct rollouts use **80 fewer think tokens at the median and 1.8× fewer on the
+> mean**. The expected risk was the opposite — that correct trajectories would be
+> the *long* ones, so DAPO would reward length and undo Stage B's compression.
+> Measured, short is right and long is flailing, which is finding 14's loop in
+> miniature: **runaway length is the failure mode.** Length pressure and accuracy
+> pressure point the same way in Stage C, so §5's think-length tail and the
+> accuracy reward are not in tension for this student.
+>
+> **Length variance tracks unreliability.** Problems solved 8/8 have tight, short
+> spreads (`gsm8k_test:24` 122–201, `:22` 110–193); problems solved sometimes have
+> wide ones (`:13` 291–1630, `:17` 165–2010). **The within-group length spread is a
+> free difficulty signal** available alongside the reward — worth using in P7's
+> curriculum bucketing rather than computing difficulty separately.
+>
+> Full per-problem table: [`per_problem_tokens.txt`](assets/009/per_problem_tokens.txt)
+> (200 rows: correct- and incorrect-rollout think tokens per problem).
+
 ## Conclusion
 
 **F3 FAILS.** Stage B assimilates the register and compresses think length 7.2×,
