@@ -492,3 +492,52 @@ measurement rather than preference: **no G_spike threshold** (008 f10b — AUC
 and **`gold+trace` conditioning wherever a trace exists** (008 f13 — gold-only
 confabulates at 73.7% in the hard band). Runs at phase boundaries, so it does
 not execute during the pilot.
+
+---
+
+## Status at 2026-08-05 21:00
+
+**Everything the packet gates the pilot on is done, verified, and committed. The
+pilot itself is blocked on the ~6 h bucketing run and is chained to start the
+moment it lands.**
+
+| Definition-of-done item | state |
+|---|---|
+| Part 0.1 entropy card (F3c debt + TEA baseline) | **done — F3c PASSES**, median 10.1× baseline |
+| Part 0.2 strict wrapper, unit-tested on finding-15 cases | **done**, 23 tests |
+| Part 0.3 `spark:8101` stopped | **done** (already down; :8100 also down, :8000 llama-swap untouched) |
+| Part 0.4 Phase-1 buckets, seen/unseen split | pool composition **done**; K=8 table **running (~6 h)** |
+| Part 1b reward battery green before pilot step 1 | **done**, 34 tests + I1–I3 property checks |
+| Part 1 DAPO loop, segment routing, TEA | **built and wired end to end**, 131 tests |
+| Part 2 pilot + F4 verdict | **chained, not yet run** |
+| Parts 3–4 Phase 1 / Phase 2 to Pareto endpoint | not started (multi-day compute) |
+| Part 5 rescue | driver **built**; runs at phase boundaries |
+| Dashboards | **built and verified** |
+
+**Test totals: 131 passing** (`tests/test_stagec_reward.py` 34,
+`test_strict_grading.py` 23, `test_dapo.py` 30, `test_curriculum.py` 13, plus
+the pre-existing segment/SED suites).
+
+### What the pilot must still deliver (packet §7)
+
+1. topology verdict from the wall-clock split — the wiring run's split
+   (rollout 90 s / trainer 10 s) is **spark-generating** and not representative;
+   turing's numbers are the real test
+2. **F4 PASS/FAIL in bold** — 50 steps, no critical rollout flag, ≥1 checkpoint
+   Pareto-dominating the init on the 200-screen
+3. reward-integrity check (loop rate → 0, `lenient_only` not widening)
+4. entropy trajectory + the τ_c ∈ {0.7, 1.0} sweep
+5. memorization read (seen-vs-unseen **within level**, per finding 5) + GLM
+   spot-check
+6. continuity evals
+
+### Substitution recorded in advance
+
+The packet asks for continuity evals *every 10 steps* during the pilot. Running
+them inline stalls the pipeline (each needs the GPU that is generating
+rollouts). Substituted: **per-step degeneracy curves from the training rollouts
+themselves** (`empty_think`, `lenient_only`, loop penalty, word-stutter, g-rate
+— all already logged every step, and a strictly faster collapse signal than a
+T=0 eval), plus checkpoints every 20 steps evaluated **after** the pilot on the
+200-screen at the full protocol. The trend line is preserved; only its cadence
+and its position in the pipeline change.
