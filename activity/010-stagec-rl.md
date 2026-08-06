@@ -438,3 +438,57 @@ direction means the update sharpens that position), but it is **not** the
 "confident-and-rewarded" reading one might assume, and `selected_entropy_mean >
 think_entropy_mean` is the observable difference. Whether `τ_c = 0.7` shifts the
 selection toward the other lobe is exactly what the pilot's sweep measures.
+
+Dashboards verified on the wiring log (`scripts/stagec_dashboards.py`, turing —
+matplotlib is turing-only). Eight panels render; the summary JSON carries the
+pipeline-balance numbers the topology verdict needs.
+
+> **Finding 9 — the empty-think attractor is live at step 1: 1 rollout in 12
+> (8.3%) already emits an empty think block.** `empty_think_max = 0.083` on the
+> very first wiring step, before any training. This is the failure the packet
+> flagged from 009's no-floor run ("this model already knows how to emit
+> `<think>\n</think>` + a correct answer, the parser scores it `g=1`, and
+> 'correct + shorter is better' makes it the global optimum on every easy
+> problem"). It is not a hypothetical to be watched for later — it is the
+> policy's *current* behaviour at an 8% base rate, which is precisely why the
+> guard had to be in the reward before step 1 rather than added on evidence.
+> Under the shipped reward such a rollout scores **1.0000 against a compact
+> correct rollout's 1.3500**, so the gradient pushes away from it. The rate is a
+> first-class dashboard curve; if it climbs from here, the run stops and rollouts
+> get read.
+
+### Run 8 — 2026-08-05 20:30 →, Part 0.4: full Phase-1 bucketing (turing, running)
+
+```
+python scripts/stagec_bucket.py \
+  --model /data/whetstone/ckpt/stageb/golden/round1/final \
+  --uids /data/whetstone/corpora/stagea/subset_stagea_uids.json \
+  --seen_uids /data/whetstone/corpora/stagea_golden/golden_faithfulness.jsonl \
+  --out_dir /data/whetstone/runs/stagec_buckets/phase1_init \
+  --temperature 1.0 --top_p 1.0 --max_tokens 12288
+```
+
+4,000 problems × K=8 = **32,000 rollouts**. Measured throughput ~3,340 output
+tok/s → **~6 h**. This is the single long pole of the packet: it is both Phase
+1's curriculum and the memorization control's baseline, and the design rule is
+*curriculum-from-init, always* (v1's 2026-05-27 lesson), so it cannot be
+shortened by reusing an earlier table.
+
+**The pilot is chained to its completion** on both boxes (`~/chain_worker.sh` on
+turing, `~/chain_train.sh` on spark), so no wall-clock is lost to the handoff:
+each waits on `phase1_init/buckets*.json`, clears any orphaned `EngineCore`, and
+launches. Pilot config: 60 steps (F4 needs 50), 4 problems/step × K=8, cap
+12,288, τ_c 1.0, λ_TEA 0.05, λ_align 0.1, sync every 8, checkpoint every 20.
+
+### Run 9 — 2026-08-05, Part 5: rescue driver built (`scripts/stagec_rescue.py`)
+
+`select` picks the 0/K clientele and carries Stage A's conditioning fields
+across so `gold+trace` problems keep their traces; `filter` applies **strict
+verify + g=1 + in-register** and emits one trace per problem, then prints the
+two delegated commands (GLM faithfulness, Stage-B assimilation at LR 5e-6 /
+≤1 epoch / fresh EMA). Two attested deviations from design §5.2, both from
+measurement rather than preference: **no G_spike threshold** (008 f10b — AUC
+0.541 at level 9, a coin flip in exactly the band every 0/K problem lives in)
+and **`gold+trace` conditioning wherever a trace exists** (008 f13 — gold-only
+confabulates at 73.7% in the hard band). Runs at phase boundaries, so it does
+not execute during the pilot.
