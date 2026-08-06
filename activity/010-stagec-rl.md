@@ -769,6 +769,40 @@ over the pilot's first 21 steps were scanned for the named rot patterns and then
 > 6% of the gradient currently says "that reasoning was worthless" about
 > reasoning that was fine.
 
+> **Finding 17 — entropy is rising 46% over 30 steps while accuracy stays flat,
+> and TEA's loss value runs 1.3–5.0× the policy loss.** Ten-step windows:
+>
+> | steps | acc | think med | **H think** | L_TEA | answer KL | clip-low | θ drift | **λ·L_TEA / policy** |
+> |---|---|---|---|---|---|---|---|---|
+> | 1–10 | 0.534 | 1,152 | **1.048** | 1.938 | 0.175 | 0.00011 | 3.9e-05 | **1.33** |
+> | 11–20 | 0.585 | 821 | **1.312** | 1.823 | 0.204 | 0.00007 | 7.3e-05 | **4.96** |
+> | 21–30 | 0.560 | 1,071 | **1.594** | 1.976 | 0.188 | 0.00006 | 9.9e-05 | **2.34** |
+>
+> `corr(step, H) = +0.695`; first-5-step mean 1.090 → last-5 1.595. Training-rollout
+> accuracy is flat (0.535 → 0.506, inside the CV-0.10 noise floor established in
+> finding 14).
+>
+> The packet's F4 entropy criterion is "**no collapse** below the Part-0 card",
+> and there is none — the card was 0.620 and the run is at 1.6. But a 46% *rise*
+> with flat accuracy is not automatically health either: it is what a policy
+> diffusing rather than sharpening looks like, and RL normally sharpens.
+>
+> The likely mechanism ties back to finding 13. Clipping is essentially inactive
+> (`clip_frac_low` ~6e-05, so every importance ratio sits inside [0.8, 1.28]) and
+> θ drift is only 1.1e-04 relative, i.e. **the policy is barely moving under the
+> policy-gradient term** — while TEA, the one term explicitly pushing entropy
+> *up*, carries 1.3–5.0× the policy loss's magnitude and concentrates its
+> gradient on a handful of tokens at ~500× the policy's per-token coefficient.
+> That combination raises entropy without a compensating accuracy signal.
+>
+> **Not acted on mid-pilot.** The binding adjudicator is F4 clause 2's fixed
+> 200-problem screen: if a checkpoint Pareto-dominates the init, the run is
+> learning and the entropy rise is TEA doing its job; if no checkpoint beats the
+> init while entropy climbs, the run is diffusing and **λ_TEA must come down**
+> (it is on the design's own run-1 sweep list) alongside finding 13's τ_c
+> correction. Recording the prediction before the measurement, so the reading
+> afterwards cannot be fitted to the result.
+
 ---
 
 ## Status at 2026-08-05 21:00
