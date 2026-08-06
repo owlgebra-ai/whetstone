@@ -166,6 +166,77 @@ problems are GSM8K; every level 2–10 problem is DeepMath.
 | 9 | 250 | 82 | 168 | 32.8% |
 | 10 | 13 | 0 | 13 | 0.0% |
 
+### Run 5 — 2026-08-05 20:20, Part 1 micro-check: T=1.0 vs T=0.7
+
+Before committing 4,000 problems of bucketing to T=1.0, the packet's own
+micro-check (§6): the same 200 GSM8K screening problems 009 measured at T=0.7,
+re-run at the pinned RL sampler. Cap 12,288 per finding 4.
+
+`scripts/stagec_bucket.py --uids screen200_uids.json --pool gsm8k_test.jsonl
+--temperature 1.0 --top_p 1.0 --max_tokens 12288`
+
+| | 009 @ T=0.7, top-p 0.95 | **this run @ T=1.0, top-p 1.0** |
+|---|---|---|
+| strict Pass@1 | 64.25% | **48.00%** |
+| strict pass@8 | 89.50% | **88.00%** |
+| 0/8 | 10.5% | 12.0% |
+| **mixed (1–7/8)** | **63.0%** | **84.0%** |
+| 8/8 | 26.5% | 4.0% |
+| cap-hit | 2.69% (8k cap) | **1.06%** (12k cap) |
+| g-rate | 95.94% | 92.06% |
+| duplicate groups | — | **0.00%** |
+
+**Micro-check PASSES on the packet's stated criteria** — cap-hit 1.06% is far
+under the ~5% ceiling, and the mixed-group fraction does not merely "hold", it
+rises from 63% to **84%**. T=1.0/top-p 1.0 is confirmed for rollouts and
+bucketing; no fallback to T=0.9 needed.
+
+> **Finding 6 — raising the sampler to T=1.0 costs 16 points of Pass@1 and buys
+> 21 points of mixed groups, which is the trade Stage C wants.** Strict Pass@1
+> falls 64.25% → 48.00% while **pass@8 barely moves (89.50% → 88.00%)**: the
+> capability is still there, the first sample is just drawn from a flatter
+> distribution. The saturated 8/8 bucket collapses 26.5% → 4.0% and nearly all
+> of it lands in the usable middle. Pass@1 *at the training temperature* is not
+> a target metric — continuity evals run at T=0 and gate evals at T=0.7 — so the
+> only thing this costs is a number nobody reports, and it buys a third more
+> problems that can produce a gradient.
+>
+> The `dup groups 0.00%` line settles the packet's §11 seeding worry
+> empirically: vLLM's ``n=8`` with a per-problem seed produced **zero**
+> byte-identical group members in 200 groups, so no group silently carries zero
+> within-group advantage.
+
+### Run 6 — 2026-08-05 20:25, topology benchmark (`scripts/bench_trainer_step.py`)
+
+The packet makes pipeline balance the pilot's first deliverable and warns
+against pushing a losing topology uphill. Building a two-box pipeline before
+checking spark can carry the trainer would have been exactly that, so the
+trainer step was benchmarked on both boxes first: real model, real numerics
+(fp32 master weights + fp32 AdamW per activity 007), seq 1024, micro-batch 1,
+grad-accum 8, bf16 autocast forward, gradient checkpointing.
+
+| box | result |
+|---|---|
+| **spark (GB10)** | **5.93 s/step**, 1,381 tok/s, **peak 34.7 GB** |
+| **turing (RTX 5090)** | **CUDA OOM** at the AdamW step — 31.36 GiB capacity, 11.81 MiB free |
+
+> **Finding 7 — the topology decision is forced by memory, not preference:
+> turing physically cannot hold fp32 AdamW state for this model.** The OOM
+> reproduces activity 007's arithmetic exactly ("fp32 weights + fp32 grads +
+> fp32 Adam + SED shadow = 28.9 GiB and OOMs"), failing inside
+> `_multi_tensor_adam` trying to allocate 48 MiB. Spark runs the same
+> configuration at **34.7 GB peak against 128 GB of unified memory** — a third
+> of the box. So P7 §4's "spark = trainer (fp32 AdamW — NOT 8-bit; memory is
+> abundant and bitsandbytes-on-ARM is an unforced risk)" is not an aesthetic
+> preference; it is the only placement where the packet's own numerics fit.
+>
+> **This raises the bar on the documented fallback.** "Full time-multiplex on
+> turing" is not a pure scheduling change — it would also force 8-bit Adam
+> moments (activity 007's Stage-B configuration, which works, but is a numerics
+> change made for the wrong reason). The fallback therefore costs *numerics*,
+> and the pilot's balance measurement has to be clearly against the split before
+> taking it.
+
 > **Finding 5 — the seen/unseen split is severely confounded with level, so a
 > pooled memorization comparison would be uninterpretable.** Seen share runs
 > 42.2% at L1, **85–95% across L3–L7**, then back down to 32.8% at L9 and 0% at
