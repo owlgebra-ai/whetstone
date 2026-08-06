@@ -722,6 +722,54 @@ stage compresses; it does not preserve accuracy.
 > included (90.49% → 90.21% strict on the full suite). **P8 owns the decision;
 > until then report both.**
 
+### Run 12 — pass@8 on the round-1 student: **the capability survived**
+
+User request: does the round-1 checkpoint have RL headroom left? 200-problem
+screening set, K=8, T=0.7, top-p 0.95, **max_tokens 8,192**.
+
+*Cap justified before use, not assumed:* over the round-1 diagnostic's 377
+well-formed generations the token p99 is 3,197 and the max is **5,267**, so an
+8,192 cap truncates **0 / 377** (0.00%). The only generations it cuts short are
+the degenerate loops, which produce no answer at 32,768 either. 203 s vs the
+32k run's 704 s.
+
+| | Pass@1 | pass@8 | headroom | 0/8 | **1–7/8** | 8/8 |
+|---|---|---|---|---|---|---|
+| baseline (same 200) | 90.62% | 95.00% | 4.4 pts | 5.0% | **8.0%** | 87.0% |
+| **round-1 student** | 66.50% ± 1.41 | **90.50%** | **24.0 pts** | 9.5% | **63.0%** | 27.5% |
+
+Round 1 also: think median 218, answer median 193, cap-hit 2.69%, g 95.94%.
+
+> **Finding 16 — Stage B destroyed reliability, not capability, and that inverts
+> the RL outlook.** Round-1 pass@8 is **90.50% against the baseline's 95.00% —
+> only −4.5 pts**, while Pass@1 is −24.1. The model still *reaches* the answer on
+> 90.5% of these problems; it does so inconsistently. **This is the exact profile
+> RL converts**: GRPO/DAPO samples K rollouts, finds the correct ones and
+> reinforces them, i.e. it trades pass@k for pass@1.
+>
+> **The student carries 7.9× more usable RL signal than the checkpoint it came
+> from.** DAPO learns only from mixed groups — all-correct and all-wrong both give
+> zero within-group advantage and are dropped by dynamic sampling. The original is
+> **87% saturated** on GSM8K (174/200 problems at a perfect 8/8; only **8.0%**
+> usable). The round-1 student is spread across the range (37 at 7/8, 21 at 6/8,
+> 21 at 5/8, 17 at 4/8) with **63.0%** usable.
+>
+> Caveats, stated because they bound the claim: (i) **GSM8K flatters this** — it is
+> the easy validation tier and that is *why* the baseline saturates; on MATH-500 or
+> AIME the original would show far more headroom, so 7.9× is partly a suite
+> artifact and should be re-measured on a hard suite. (ii) pass@8 = 90.5% does not
+> promise pass@1 = 90.5%; RL recovers a fraction of the gap. (iii) 9.5% of problems
+> are at 0/8 and need the packet's pedagogy-rescue path, and 2.7% of generations
+> still loop (finding 14).
+
+**Revision to this journal's own conclusion.** The verdict below originally read
+"P7 must NOT proceed — F3a is missed by 23 points, not a sweep's worth." That was
+reasoned from Pass@1 alone and is the wrong frame. **F3 still FAILS** — an accuracy
+gate is an accuracy gate — but the failure is *unreliability*, not *incapability*,
+and Stage C is the stage built for that. **Proceeding to P7 on the round-1
+checkpoint is defensible**, with F3's breached accuracy floor going to design
+review rather than blocking outright.
+
 ## Conclusion
 
 **F3 FAILS.** Stage B assimilates the register and compresses think length 7.2×,
@@ -748,9 +796,13 @@ What is established:
 5. **Loss and entropy cannot detect any of this** (finding 11). Only generative
    evaluation can.
 
-**Next packet should not proceed to P7.** F3's accuracy floor is the gate that
-matters and it is missed by 23 points, not by a margin that a hyperparameter
-sweep closes.
+**On P7 — revised by finding 16.** The accuracy floor is missed by 23 points and
+no sweep closes that. But pass@8 shows the *capability* is intact (90.50% vs the
+baseline's 95.00%) and the student carries **7.9× more usable DAPO signal** than
+the checkpoint it came from (63.0% mixed groups vs 8.0%). Stage C exists to turn
+pass@k into pass@1. **P7 on the round-1 checkpoint is a defensible next step**;
+F3's failure goes to design review rather than blocking it. Round 2 should be
+dropped — it is worse on every axis.
 
 ### Artifacts
 

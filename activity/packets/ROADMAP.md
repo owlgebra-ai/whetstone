@@ -202,7 +202,18 @@ Suite roles — three tiers with different touch frequencies, so headline number
   over ssh **self-matches the ssh command line**; kill by PID. Orphaned
   `VLLM::EngineCore` (PPID 1) held 51 GB and 30 GB on two separate occasions —
   always check `nvidia-smi --query-compute-apps` after killing a vLLM job.
-- **P7 must NOT proceed.** F3a is missed by 23 points, not by a sweep's worth.
+- **Stage B broke RELIABILITY, not CAPABILITY — and the student is a BETTER RL
+  start than the original.** Round-1 **pass@8 90.50% vs baseline 95.00% (−4.5 pts)**
+  against a Pass@1 gap of −24.1. DAPO learns only from mixed groups: the original is
+  **87% saturated** on GSM8K (only **8.0%** of problems give a usable within-group
+  advantage); the round-1 student gives **63.0%** — **7.9×** more signal. Headroom
+  24.0 pts vs 4.4. Caveats: GSM8K is the easy tier and that is why the baseline
+  saturates (re-measure on MATH-500 before quoting 7.9× generally); pass@8 does not
+  promise pass@1; 9.5% sit at 0/8 and need pedagogy rescue.
+- **P7 is therefore DEFENSIBLE on the round-1 checkpoint** (not round 2, which is
+  worse on every axis). F3's breached accuracy floor goes to design review rather
+  than blocking. An earlier reading of this run said "P7 must not proceed"; that was
+  reasoned from Pass@1 alone and is superseded.
 
 ## Facts pinned by activity 008 (P5 / **F2 gate**) — binding on all later packets
 
