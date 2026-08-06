@@ -86,7 +86,13 @@ I2_MIN_MARGIN = 0.30           # worst correct − best wrong
 # NOT a bare substring set: `case` is an English word occurring in 10.2% of the
 # corpus's own answers (009 finding 1), so `"case" in answer` would fire on
 # ordinary English and tax correct rollouts.
-_LEAK_LINE_RE = re.compile(r"^\s*(?:goal|chk|sub|let|case)\s*:", re.IGNORECASE)
+#: Case-SENSITIVE by design (activity 011): the register writes its markers
+#: strictly lowercase (``let:``, ``goal:``), while mathematical English opens
+#: lines with capitalized ``Let:``/``Case:`` as ordinary prose scaffolding —
+#: IGNORECASE made the detector fire on exactly that (Arm A scan: every read
+#: leak sample was a clean LaTeX answer with a ``Let:`` header, rising to 3.8%
+#: of rollouts as answers grew toward the 288-token band).
+_LEAK_LINE_RE = re.compile(r"^\s*(?:goal|chk|sub|let|case)\s*:")
 #: Symbols count as leakage only **line-initially**. Activity 010 finding 15:
 #: a bare ``[⇒✗]`` search fired on 9/9 detections in the pilot, every one of them
 #: ``⇒`` used as ordinary mathematical notation inside English prose ("If a
@@ -102,8 +108,14 @@ _ARROW_VALUE_RE = re.compile(r"⇒\s*([^\n⇒]{1,80})")
 _BOXED_RE = re.compile(r"\\boxed\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}")
 
 _DIGITS_RE = re.compile(r"\d+")
+#: The repeated token must contain a word character (activity 011): ``$$`` on
+#: its own line — a LaTeX display-math delimiter — otherwise matches whenever
+#: two display blocks are separated by a blank line, taxing normal mathematical
+#: typesetting at a measured ~9% of all rollouts (flat across pilot 1 AND Arm
+#: A, i.e. a base rate of honest formatting, not a behaviour). The true target
+#: (v1 §4.6's ``151\n\n151\n\n151``) always contains word characters.
 _ANSWER_REPEAT_RE = re.compile(
-    r"^(?P<tok>\S{1,40})(?:\s*\n\s*\n\s*(?P=tok))+\s*$", re.MULTILINE
+    r"^(?P<tok>(?=\S{0,39}\w)\S{1,40})(?:\s*\n\s*\n\s*(?P=tok))+\s*$", re.MULTILINE
 )
 
 

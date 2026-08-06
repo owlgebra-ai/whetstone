@@ -25,6 +25,7 @@ from whetstone.reward.stagec import (
     assert_invariants,
     band_multiplier,
     compute_stagec_reward,
+    detect_answer_repeat,
     detect_contradiction,
     detect_register_leak,
     length_multiplier,
@@ -380,3 +381,31 @@ def test_assert_invariants_reports_the_margin() -> None:
     out = assert_invariants()
     assert out["margin"] >= I2_MIN_MARGIN
     assert out["max_struct"] < 1.0
+
+
+# --- activity 011 (Arm A scan): two more finding-15-class false positives ----
+
+def test_leak_detector_is_case_sensitive_english_let_header_is_clean() -> None:
+    """Verbatim shape from the Arm A scan: mathematical English opens lines
+    with capitalized `Let:` as prose scaffolding; the register's binder is
+    strictly lowercase `let:`. IGNORECASE taxed clean LaTeX answers at 3.8%."""
+    english = "We take the logarithm.\n\nLet:\n\n$$\nL = \\lim_{n\\to\\infty} f(n)\n$$"
+    assert detect_register_leak(english)["fired"] is False
+    assert detect_register_leak("Case: when x > 0, trivial.")["fired"] is False
+    # The register's own lowercase markers still fire.
+    assert detect_register_leak("let: x = 3\n")["fired"] is True
+    assert detect_register_leak("some prose\ncase 2: n odd\n")["fired"] is False
+    assert detect_register_leak("case: n odd\n")["fired"] is True
+
+
+def test_answer_repeat_ignores_latex_display_delimiters() -> None:
+    """Verbatim shape from the Arm A scan: consecutive `$$` display blocks
+    separated by a blank line are typesetting, not answer restatement. Fired
+    on ~9% of ALL rollouts, flat across pilot 1 and Arm A — a base rate of
+    honest formatting."""
+    latex = ("Adding these together gives:\n$$\n12 + 12 + 0 + 10 = 34\n$$\n\n"
+             "$$\n\\boxed{34}\n$$\n")
+    assert detect_answer_repeat(latex)["fired"] is False
+    # v1 §4.6's true target still fires: bare restated numerals.
+    assert detect_answer_repeat("151\n\n151\n\n151")["fired"] is True
+    assert detect_answer_repeat("\\boxed{7}\n\n\\boxed{7}")["fired"] is True
