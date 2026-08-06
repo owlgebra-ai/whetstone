@@ -224,7 +224,24 @@ def main(argv=None) -> int:
         weights_version = version
         print(f"[train] published weights v{version}", flush=True)
 
-    export_weights(1)      # the worker must start on the checkpoint we train from
+    # The worker must be generating from the checkpoint we are training. If it
+    # already is (launched with the same --init_model), publishing a v1 that is
+    # byte-for-byte the same policy just costs a ~55 s engine rebuild, so check
+    # first. If it is serving something else, that is a silent-corruption bug —
+    # the whole run would compute importance ratios against the wrong behaviour
+    # policy — so publish and force the swap.
+    ws = bus.worker_status()
+    if ws.get("state") == "never started":
+        print("[train] WARNING: no worker heartbeat yet; publishing v1 to be safe",
+              flush=True)
+        export_weights(1)
+    elif os.path.realpath(ws.get("model", "")) != os.path.realpath(args.init_model):
+        print(f"[train] worker is serving {ws.get('model')!r}, not {args.init_model!r}"
+              " — publishing v1 to force a swap", flush=True)
+        export_weights(1)
+    else:
+        print(f"[train] worker already on {args.init_model} (v{ws.get('version')}) "
+              "— skipping the redundant initial publish", flush=True)
 
     # --- the loop ----------------------------------------------------------
     for step in range(1, args.steps + 1):

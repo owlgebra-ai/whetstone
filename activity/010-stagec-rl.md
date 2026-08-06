@@ -339,3 +339,78 @@ cost above.
 > ≥10 identical consecutive *lines* or ≥6 identical after digit-blanking, which
 > is what catches `case 1:`…`case 713:`. "KEEP the penalty" meant "keep the
 > intent"; the implementations did not survive the register change.
+
+### Run 7 — 2026-08-05 20:35, Part 1: the pipeline, built and wired end to end
+
+Three new modules plus two scripts, all unit-tested before GPU time:
+
+| path | role |
+|---|---|
+| `whetstone/dapo.py` | the objective: clip-higher token-level policy loss, TEA, answer-KL, difficulty amplification, dynamic sampling, mask-partition assert |
+| `whetstone/curriculum.py` | saturation-paced batch tilt (packet §8) |
+| `whetstone/rollout_bus.py` | the trainer↔worker contract over `/data`, temp-then-rename everywhere |
+| `scripts/stagec_rollout_worker.py` | turing side: offline vLLM, weight swap, staleness recorded |
+| `scripts/stagec_train.py` | spark side: the loop |
+| `scripts/stagec_dashboards.py` | the §7 panels, built alongside the trainer per CLAUDE.md |
+
+**Deviation from P7 §4, attested — the π_0 anchor server is gone.** The packet
+puts a frozen π_0 on `turing:8002` serving `prompt_logprobs`. That design exists
+because activity 007 could not fit a second copy on turing's 32 GB beside the
+optimizer state — it is why `precompute_pi0_cache.py` was written. Spark's
+128 GB can hold it (3.4 GB bf16), so π_0 is now **resident on the trainer**.
+This removes a network round-trip per step and makes the packet's own §11
+gotcha — "reloading :8002 with student weights corrupts the KL anchor silently"
+— *structurally impossible*: the anchor is loaded once from the original
+checkpoint and never written.
+
+**Why files rather than HTTP for rollouts.** The trainer needs **token ids**;
+every mask in this project comes from `parse_segments` on ids because the
+decoded-string round-trip does not preserve boundaries. vLLM's offline
+`LLM.generate` returns `token_ids`; the OpenAI HTTP surface returns text and
+string-keyed logprobs. One NFS round-trip per step is noise beside a 6-second
+optimizer step.
+
+Wiring verified end to end on **spark alone** (worker + trainer co-resident,
+turing busy bucketing), 3 steps, K=4:
+
+```
+[train] step 1 | keep 1/2 | acc 0.50 | think 513 | ans 262 | H 1.755 |
+        drift 1.49e-05 | wall 89s (gen 83 / train 5)
+```
+
+`theta_drift_rel` is non-zero, so the run is not a silent no-op — the failure
+mode activity 007 mandates logging for, and which has caught this project twice.
+Weight sync works: the worker detected `v1`, swapped in **55.2 s**, and reported
+`staleness 0`. `logp_old_mismatch = 0.0128` nats between vLLM's logprobs and the
+trainer's own forward, with `ratio_mean = 0.99995` — the two engines agree
+closely enough that the importance ratio is sound.
+
+> **Finding 8 — TEA was completely inert, and only a diagnostic caught it.**
+> The wiring run logged `l_tea` and `think_entropy_mean` as **identical to eight
+> decimal places on every step** (1.7547621131 vs 1.7547619045; diff 2e-07),
+> with `cap_hit_frac = 0.0`. TEA's softmax weights were perfectly uniform: the
+> term was adding mean think entropy and **selecting nothing**.
+>
+> Cause: `Cov_t = centered(log p_t)·centered(A_t)`, and **the advantage is
+> constant within a rollout** — one scalar group advantage broadcast to its
+> tokens. The trainer micro-batches one rollout at a time for memory, so
+> `centered(A_t) ≡ 0`, `Cov ≡ 0`, uniform softmax. The design and the packet
+> both say "**per batch** `Cov_t`"; the word *batch* is load-bearing and I had
+> implemented it per micro-batch.
+>
+> Fix: `compute_tea_weights()` builds the selection over the whole batch
+> **before any forward pass** — both inputs (`logp_old` from vLLM, the
+> advantages) are constants w.r.t. θ, so the weights are a pure selector with no
+> gradient through them — and each micro-batch is handed a constant slice via
+> `tea_term()`. The policy loss and answer-KL now take batch-level denominators
+> too, so micro-batch accumulation sums to *exactly* the batch objective rather
+> than to a sequence-level average wearing a token-level costume. A
+> **`uniformity`** metric (1.0 = selecting nothing) is now logged every step, and
+> both failure directions are pinned as tests.
+>
+> This is the third instance in this packet of the same failure class — a
+> component **present, configured, logged, and inert** (finding 1's contradiction
+> detector; finding 2's Gemma-era detectors; now TEA). None would have thrown an
+> error. TEA's curve would have moved, plausibly, forever. It is worth stating as
+> a rule: **for every regularizer, log a statistic that goes to a known constant
+> when the term is doing nothing**, and assert against that constant in a test.
