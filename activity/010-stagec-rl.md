@@ -493,6 +493,37 @@ and **`gold+trace` conditioning wherever a trace exists** (008 f13 — gold-only
 confabulates at 73.7% in the hard band). Runs at phase boundaries, so it does
 not execute during the pilot.
 
+> **Finding 10 — the bf16 weight export was casting the live fp32 policy in
+> place, which would have erased the learning between every sync.** Caught in a
+> pre-launch read of the trainer, before the pilot ran.
+>
+> `policy.to(torch.bfloat16).save_pretrained(...)` followed by
+> `policy.to(torch.float32)` looks like a round trip. It is not:
+> `nn.Module.to()` mutates parameters **in place**, and casting back cannot
+> restore mantissa bits that are already gone. Measured on a toy module:
+>
+> | | |θ| before → after | verdict |
+> |---|---|---|
+> | in-place cast round trip | 6.5958328247 → 6.595**9014893** | **changed** |
+> | bf16 *copy* of the state dict | 6.5550575256 → 6.5550575256 | unchanged |
+>
+> The magnitude is what makes it fatal rather than untidy: the round trip
+> introduces a mean per-weight perturbation of **8.09e-05**, while an Adam step
+> at LR 1e-6 moves a weight by ~1e-6. The export noise is **~81× the size of the
+> update**, so every sync (every 8 optimizer steps) would have thrown away the
+> learning since the previous one — and `theta_drift_rel` would have kept
+> reporting non-zero drift the whole time, because the weights *were* moving,
+> just not in the direction of the gradient.
+>
+> This is **activity 007's finding re-entering through a different door**. 007
+> established fp32 master weights because "at LR 1e-5 a bf16 weight update is
+> 12× below the format's quantum and rounds to zero silently", and the trainer
+> honours that in the optimizer — then handed the same precision back in the
+> serialization path. The fix builds a bf16 **copy** of the state dict and
+> asserts `|θ|` is bit-identical across the export; the assert is the part worth
+> keeping, because the next person to touch this code will reach for `.to()`
+> again.
+
 ---
 
 ## Status at 2026-08-05 21:00
