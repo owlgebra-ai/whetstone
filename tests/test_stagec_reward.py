@@ -276,7 +276,28 @@ def test_leak_detector_ignores_the_english_word_case() -> None:
 def test_leak_detector_catches_line_initial_markers_and_symbols() -> None:
     assert detect_register_leak("goal: restate\nthe answer is 72")["fired"] is True
     assert detect_register_leak("chk: 72 ✓")["fired"] is True
-    assert detect_register_leak("the value ⇒ 72")["fired"] is True
+    assert detect_register_leak("⇒ 72")["fired"] is True
+    assert detect_register_leak("some prose\n⇒ 12 · 6 = 72")["fired"] is True
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        # Every one of these is a verbatim shape from the pilot's own rollouts
+        # (activity 010 finding 15) — ⇒ as ordinary math notation in English.
+        'If a polynomial has a root ⇒ it has a linear factor.',
+        "- **If** a polynomial has a root ⇒ it has a linear factor.",
+        "Total: $32 + 18 + 98 = \\$138 ⇒ this shares 72 cents for 48 fruits.",
+        "4 apples = 1 watermelon ⇒ cost of 1 watermelon is $4 (per pack).",
+    ],
+)
+def test_leak_detector_ignores_mid_prose_math_notation(answer: str) -> None:
+    """A ⇒ inside a sentence is standard notation, not register leakage.
+
+    Before this rule the detector fired on 9/9 real detections, all of them
+    false — a 0.10 penalty levied on correct answers for writing mathematics.
+    """
+    assert detect_register_leak(answer)["fired"] is False
 
 
 # --- loop detector ----------------------------------------------------------

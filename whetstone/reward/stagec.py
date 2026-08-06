@@ -87,7 +87,15 @@ I2_MIN_MARGIN = 0.30           # worst correct − best wrong
 # corpus's own answers (009 finding 1), so `"case" in answer` would fire on
 # ordinary English and tax correct rollouts.
 _LEAK_LINE_RE = re.compile(r"^\s*(?:goal|chk|sub|let|case)\s*:", re.IGNORECASE)
-_LEAK_SYMBOL_RE = re.compile(r"[⇒✗]")
+#: Symbols count as leakage only **line-initially**. Activity 010 finding 15:
+#: a bare ``[⇒✗]`` search fired on 9/9 detections in the pilot, every one of them
+#: ``⇒`` used as ordinary mathematical notation inside English prose ("If a
+#: polynomial has a root ⇒ it has a linear factor"). The register writes its
+#: conclusions line-initially (``⇒ 12 · 6 = 72``), so requiring that is both
+#: faithful to the register and free of the false positives — otherwise the
+#: penalty is a tax on correct answers for using standard notation, which is the
+#: exact failure class this project keeps finding.
+_LEAK_SYMBOL_RE = re.compile(r"^\s*[⇒✗]", re.MULTILINE)
 
 #: Last ``⇒`` conclusion in the think body — the contradiction detector's left side.
 _ARROW_VALUE_RE = re.compile(r"⇒\s*([^\n⇒]{1,80})")
