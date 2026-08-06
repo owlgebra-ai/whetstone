@@ -115,6 +115,53 @@ lambda_tea=0.0`; curriculum 3,184 mixed / bands 1,366 high / 972 mid / 846
 low (the reused table, byte-identical); worker model-match check skipped the
 redundant v1 publish; step-1 generation 60.9 s for 64 rollouts (8×8).
 
+### Run 3 (cont.) — 2026-08-06 ~11:00, Arm A COMPLETE: 100/100 steps, clean exit
+
+Median wall ~80–110 s/step at 8 problems/step (prefetch hides generation
+almost entirely — most steps log `gen 0`). Checkpoints at 25/50/75/100.
+`theta_drift_rel` monotone 1.48e-05 → 2.20e-04.
+
+**The clause-1 trajectory, 10-step windows over ALL candidates (kept +
+dropped groups):**
+
+| steps | H think | mtc (all) | g (all) | stutter | answer KL | clip-low | clip-high |
+|---|---|---|---|---|---|---|---|
+| 1–10 | 1.217 | 0.0750 | 0.925 | 0.0021 | 0.171 | 0.00013 | 0.00044 |
+| 11–20 | 1.242 | 0.0766 | 0.920 | 0.0025 | 0.188 | 0.00014 | 0.00073 |
+| 21–30 | 1.243 | 0.0719 | 0.925 | 0.0018 | 0.177 | 0.00027 | 0.00121 |
+| 31–40 | 1.142 | 0.0547 | 0.945 | 0.0021 | 0.166 | 0.00023 | 0.00084 |
+| 41–50 | 1.180 | 0.0453 | 0.952 | 0.0017 | 0.155 | 0.00034 | 0.00088 |
+| 51–60 | 1.119 | 0.0484 | 0.942 | 0.0035 | 0.169 | 0.00029 | 0.00068 |
+| 61–70 | 1.123 | 0.0547 | 0.944 | 0.0020 | 0.154 | 0.00032 | 0.00047 |
+| 71–80 | 1.104 | 0.0500 | 0.944 | 0.0048 | 0.143 | 0.00033 | 0.00050 |
+| 81–90 | 1.049 | 0.0453 | 0.952 | 0.0029 | 0.136 | 0.00030 | 0.00044 |
+| 91–100 | **0.991** | **0.0391** | **0.955** | 0.0025 | 0.116 | 0.00027 | 0.00039 |
+
+Side by side with pilot 1 over the same axes: H 1.05→**3.18** became
+1.22→**0.99** — entropy now *declines* gently in the second half, i.e. the
+policy is sharpening the way RL normally does, instead of diffusing;
+`missing_think_close` 5.6%→**35.6%** became 7.5%→**3.9%** — the failure is not
+merely flat, it is being *taught away* (the r_fmt=0.10 well-formed floor was
+always the right gradient; it just couldn't outrun a 3× entropy rise);
+`g_rate` (all candidates) rises 0.925→0.955; word stutter flat at 0.002–0.005
+against pilot 1's 4.4× climb; answer-KL bounded and declining 0.171→0.116.
+Clip fractions are tiny on both sides (≤0.0012) — symmetric clipping is not
+suppressing learning, it is simply no longer subsidizing the upside tail.
+
+**Reward view (kept groups):** window reward mean 0.776→0.892 with acc
+0.59→0.70 against batch p̂ 0.65→0.68 — in the last three windows acc sits
+**above** the bucket-table p̂ (e.g. 0.72 vs 0.62 in 81–90), the first
+training-curve hint of genuine conversion, though per 010 f20 the fixed
+screen remains the only binding instrument. Within-group reward std steady at
+0.39–0.50; penalties ≤0.011 total; empty think ≤0.011 (guard holding);
+lenient-only 0.04–0.07 not widening; drop reasons 107 all-correct vs 13
+all-wrong over the run — the saturation direction, not the rot direction.
+
+**Prediction recorded before the screen returns** (same discipline as 010
+f17): if the screen shows a checkpoint with strict Pass@1 up at ≤219 think
+median, Arm A PASSES and the diagnosis (entropy ceiling via symmetric
+clipping alone) is confirmed end to end.
+
 ## Conclusion
 
 (TBD)
