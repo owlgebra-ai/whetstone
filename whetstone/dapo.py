@@ -450,6 +450,8 @@ def stagec_loss(
     token_advantages: torch.Tensor,
     think_mask: torch.Tensor,
     answer_mask: torch.Tensor,
+    eps_low: float = CLIP_EPS_LOW,
+    eps_high: float = CLIP_EPS_HIGH,
     lambda_tea: float = TEA_LAMBDA,
     lambda_align: float = LAMBDA_ALIGN,
     tau_c: float = TEA_TAU_C,
@@ -474,7 +476,8 @@ def stagec_loss(
     completion_mask = ((think_mask > 0) | (answer_mask > 0)).to(logp.dtype)
 
     policy, p_stats = token_level_policy_loss(
-        logp, logp_old, token_advantages, completion_mask, denom=policy_denom
+        logp, logp_old, token_advantages, completion_mask,
+        eps_low=eps_low, eps_high=eps_high, denom=policy_denom
     )
     if tea_weights is not None:
         # Batch-scoped selection (the correct path — see compute_tea_weights).

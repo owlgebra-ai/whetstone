@@ -144,6 +144,15 @@ def main(argv=None) -> int:
     ap.add_argument("--temperature", type=float, default=1.0)
     ap.add_argument("--top_p", type=float, default=1.0)
     ap.add_argument("--max_tokens", type=int, default=12288)
+    ap.add_argument("--eps_low", type=float, default=None,
+                    help="clip lower bound; default = whetstone.dapo.CLIP_EPS_LOW")
+    ap.add_argument("--eps_high", type=float, default=None,
+                    help="clip upper bound. P7b Arm A runs SYMMETRIC clipping "
+                         "(eps_high = eps_low = 0.20): clip-higher was the "
+                         "dominant entropy driver on an already-entropy-rich "
+                         "checkpoint (010 finding 23). Default = "
+                         "whetstone.dapo.CLIP_EPS_HIGH (the v1 §7.3 asymmetric "
+                         "value), so pilot-1 commands reproduce pilot 1")
     ap.add_argument("--lambda_tea", type=float, default=0.05)
     ap.add_argument("--lambda_align", type=float, default=0.1)
     ap.add_argument("--tau_c", type=float, default=1.0)
@@ -170,9 +179,16 @@ def main(argv=None) -> int:
     import torch
     from transformers import AutoModelForCausalLM
 
+    from whetstone.dapo import CLIP_EPS_HIGH, CLIP_EPS_LOW
+    eps_low = args.eps_low if args.eps_low is not None else CLIP_EPS_LOW
+    eps_high = args.eps_high if args.eps_high is not None else CLIP_EPS_HIGH
+
     os.makedirs(args.run_dir, exist_ok=True)
     inv = assert_invariants()       # fail fast on a reward mis-configuration
     print(f"[train] reward invariants OK: {inv}", flush=True)
+    print(f"[train] clip eps_low={eps_low} eps_high={eps_high} "
+          f"({'SYMMETRIC' if eps_low == eps_high else 'clip-higher'}) | "
+          f"lambda_tea={args.lambda_tea}", flush=True)
 
     log_path = os.path.join(args.run_dir, "train_log.jsonl")
     logf = open(log_path, "a")
@@ -432,6 +448,7 @@ def main(argv=None) -> int:
                 logp=logp, logp_old=lo, logp_ref=logp_ref, entropy=ent,
                 token_advantages=m["tok_adv"].to(dev),
                 think_mask=tmask, answer_mask=amask,
+                eps_low=eps_low, eps_high=eps_high,
                 lambda_tea=args.lambda_tea, lambda_align=args.lambda_align,
                 tau_c=args.tau_c, cap_c=args.tea_cap_c,
                 tea_scale=args.tea_scale,
@@ -470,12 +487,28 @@ def main(argv=None) -> int:
             return float(sum(s[key] for s in acc_stats if key in s))
 
         all_bd = [b for _, sc, _ in kept for b in sc["breakdowns"]]
+        # Batch-wide format health, computed over EVERY candidate in the batch —
+        # kept and dropped groups alike. Format failure concentrates in all-wrong
+        # groups, which dynamic sampling removes from `kept`, so a kept-only rate
+        # understates exactly the failure F4 clause 1 watches (010 finding 21:
+        # missing_think_close 5.6% → 35.6% at the training sampler).
+        all_cands = [c for r in rows for c in r["candidates"]]
+        mtc_rate = float(statistics.mean(
+            [c["gate_reason"] == "missing_think_close" for c in all_cands]))
+        g_rate_all = float(statistics.mean([c["g"] for c in all_cands]))
+        # Beside acc, always (010 finding 20: acc tracks batch p̂ at r=+0.77 —
+        # a trend read off unadjusted training curves is sampling, not policy).
+        batch_p_hat = float(statistics.mean([r.get("p_hat", 0.5) for r in rows]))
         rec = {
             "step": step, "t": time.time(),
             "wall": {"total": time.time() - step_t0, "rollout": t_rollout,
                      "scoring": t_score, "trainer": t_fwd, "sync": t_sync},
             "worker": bus.worker_status(),
             "n_groups": len(rows), "n_kept": len(kept),
+            "batch_p_hat_mean": batch_p_hat,
+            "format": {"missing_think_close_rate": mtc_rate,
+                       "g_rate_all_cands": g_rate_all},
+            "clip_eps": {"low": eps_low, "high": eps_high},
             "drop_rate": n_drop / max(1, len(rows)),
             "drop_reasons": {r: sum(1 for g in group_stats if g.drop_reason == r)
                              for r in ("all_correct", "all_wrong")},
@@ -530,9 +563,10 @@ def main(argv=None) -> int:
         log(rec)
         r = rec["reward"]
         print(f"[train] step {step:4d} | keep {len(kept)}/{len(rows)} | "
-              f"acc {r['acc_rate']:.2f} | think {r['think_median']:.0f} | "
+              f"acc {r['acc_rate']:.2f} (p̂ {batch_p_hat:.2f}) | "
+              f"think {r['think_median']:.0f} | "
               f"ans {r['answer_median']:.0f} | H {rec['tea']['think_entropy_mean']:.3f} | "
-              f"teaU {rec['tea']['uniformity']:.3f} | "
+              f"mtc {mtc_rate:.3f} | teaU {rec['tea']['uniformity']:.3f} | "
               f"drift {drift:.2e} | "
               f"wall {rec['wall']['total']:.0f}s "
               f"(gen {t_rollout:.0f} / train {t_fwd:.0f})", flush=True)

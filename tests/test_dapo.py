@@ -382,3 +382,84 @@ def test_policy_loss_micro_batches_sum_to_the_batch_value() -> None:
         for i in range(3)
     )
     assert float(whole) == pytest.approx(float(pieces), rel=1e-5)
+
+
+# --- P7b Arm A: symmetric clipping + the lambda_tea=0 inert statistic --------
+
+def test_symmetric_eps_clips_the_upside_where_clip_higher_did_not() -> None:
+    """The one variable Arm A changes, pinned as a measurable difference.
+
+    A token whose ratio sits between 1+eps_low and 1+eps_high (here 1.25) is
+    unclipped under clip-higher (0.2/0.28) but clipped under symmetric 0.2/0.2 —
+    so its gradient must vanish under the symmetric setting (positive advantage,
+    clipped branch active) while remaining nonzero under clip-higher.
+    """
+    logp_old = torch.log(torch.tensor([[0.5]]))
+    logp = torch.log(torch.tensor([[0.625]])).requires_grad_(True)   # ratio 1.25
+    adv = torch.tensor([[1.0]])
+    mask = torch.ones(1, 1)
+
+    loss_asym, s_asym = token_level_policy_loss(
+        logp, logp_old, adv, mask, eps_low=0.2, eps_high=0.28)
+    loss_asym.backward()
+    grad_asym = float(logp.grad.abs().sum())
+    assert s_asym["clip_frac_high"] == 0.0
+    assert grad_asym > 0.0
+
+    logp2 = torch.log(torch.tensor([[0.625]])).requires_grad_(True)
+    loss_sym, s_sym = token_level_policy_loss(
+        logp2, logp_old, adv, mask, eps_low=0.2, eps_high=0.2)
+    loss_sym.backward()
+    assert s_sym["clip_frac_high"] == 1.0
+    assert float(logp2.grad.abs().sum()) == pytest.approx(0.0)
+    # The clipped surrogate value is 1.2·A, below the unclipped 1.25·A.
+    assert float(loss_sym.detach()) > float(loss_asym.detach())
+
+
+def test_stagec_loss_threads_eps_through_to_the_clip() -> None:
+    """stagec_loss(eps_low=, eps_high=) must reach token_level_policy_loss —
+    a kwarg accepted but not forwarded would silently run clip-higher."""
+    B, T = 1, 4
+    think = torch.ones(B, T)
+    answer = torch.zeros(B, T)
+    logp_old = torch.log(torch.full((B, T), 0.5))
+    logp = torch.log(torch.full((B, T), 0.625))     # ratio 1.25 everywhere
+    parts = stagec_loss(
+        logp=logp, logp_old=logp_old, logp_ref=logp_old.clone(),
+        entropy=torch.full((B, T), 0.6),
+        token_advantages=torch.ones(B, T),
+        think_mask=think, answer_mask=answer,
+        eps_low=0.2, eps_high=0.2,
+    )
+    assert parts.stats["policy/clip_frac_high"] == 1.0
+    parts2 = stagec_loss(
+        logp=logp, logp_old=logp_old, logp_ref=logp_old.clone(),
+        entropy=torch.full((B, T), 0.6),
+        token_advantages=torch.ones(B, T),
+        think_mask=think, answer_mask=answer,
+        eps_low=0.2, eps_high=0.28,
+    )
+    assert parts2.stats["policy/clip_frac_high"] == 0.0
+
+
+def test_lambda_tea_zero_is_exactly_inert() -> None:
+    """Arm A's inert statistic (P7b standing rule): with lambda_tea = 0 the
+    logged tea term must be EXACTLY 0.0 — the known constant that says the
+    component is off, not merely small."""
+    B, T = 2, 6
+    think = torch.tensor([[1, 1, 1, 0, 0, 0], [1, 1, 0, 0, 0, 0]])
+    answer = torch.tensor([[0, 0, 0, 1, 1, 0], [0, 0, 1, 1, 0, 0]])
+    logp = torch.full((B, T), -0.7, requires_grad=True)
+    parts = stagec_loss(
+        logp=logp,
+        logp_old=torch.full((B, T), -0.7),
+        logp_ref=torch.full((B, T), -0.9),
+        entropy=torch.full((B, T), 0.6),
+        token_advantages=torch.tensor([[1.0] * 6, [-1.0] * 6]),
+        think_mask=think, answer_mask=answer,
+        lambda_tea=0.0,
+    )
+    assert parts.stats["loss/tea_term"] == 0.0
+    # And the total must equal policy + kl exactly — no residual TEA leakage.
+    assert parts.stats["loss/total"] == pytest.approx(
+        parts.stats["loss/policy"] + parts.stats["loss/kl_term"], abs=1e-7)
