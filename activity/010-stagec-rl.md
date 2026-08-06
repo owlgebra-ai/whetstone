@@ -524,6 +524,67 @@ not execute during the pilot.
 > keeping, because the next person to touch this code will reach for `.to()`
 > again.
 
+### Run 8 (cont.) — 2026-08-06 02:52, Part 0.4 COMPLETE: the Phase-1 bucket table
+
+4,000 problems × K=8 = 32,000 rollouts in **381.5 min (6.4 h)** on turing.
+Artifacts: `/data/whetstone/runs/stagec_buckets/phase1_init/{buckets.jsonl,buckets_summary.json}`.
+
+| | value |
+|---|---|
+| 0/8 | **14.5%** (580 problems — rescue's clientele) |
+| **mixed 1–7/8** | **79.6%** (3,184 problems — the curriculum) |
+| 8/8 | 5.9% |
+| strict Pass@1 | 46.35% (as-scored 47.95%) |
+| strict pass@8 | **85.45%** |
+| g-rate | 92.67% |
+| cap-hit | **0.78%** (at 12,288 — finding 4 vindicated) |
+| lenient-only | 1.78% |
+| think median / answer median | 978 / 403 |
+| duplicate groups | **0.00%** |
+
+**79.6% mixed groups.** Against the original checkpoint's 8.0% on GSM8K, that is
+**~10× the usable DAPO signal**, and the headroom is **39.1 points** (46.35 →
+85.45). The substrate claim from 009 finding 16 holds on the real training pool,
+not just the easy validation tier.
+
+> **Finding 11 — the student is measurably better on problems it saw in Stage-B
+> SFT, by +5.32 points, and the pooled comparison hides 84% of that.** This is
+> the memorization control's *pre-RL baseline*, and it is the exact
+> Simpson's-paradox trap finding 5 predicted.
+>
+> | | strict Pass@1 delta (seen − unseen) |
+> |---|---|
+> | **pooled over all 4,000** | **+0.85 pts** — looks like nothing |
+> | **inverse-variance weighted within level** | **+5.32 pts (SE 1.86, z = +2.87)** |
+>
+> | level | n seen | seen | n unseen | unseen | delta |
+> |---|---|---|---|---|---|
+> | 1 | 844 | 51.66% | 1,156 | 47.49% | **+4.17** |
+> | 5 | 327 | 40.37% | 26 | 30.77% | **+9.60** |
+> | 6 | 494 | 39.68% | 52 | 34.62% | **+5.06** |
+> | 7 | 234 | 48.72% | 42 | 40.48% | **+8.24** |
+> | 8 | 235 | 44.68% | 79 | 31.65% | **+13.04** |
+> | 9 | 82 | 51.22% | 168 | 48.81% | **+2.41** |
+>
+> **6 of 6 levels favour seen** (sign test p = 0.031); the weighted effect is
+> **6.3× the pooled one**. Levels 2, 3, 4 and 10 have fewer than 25 problems on
+> one side and are excluded rather than quoted.
+>
+> The cause is the one predicted: unseen problems are concentrated in the *easy*
+> L1 tier (1,156 of 1,586) while seen problems sit in the mid-difficulty band, so
+> pooling lets an easy-problem majority on the unseen side cancel a real
+> seen-side advantage almost exactly.
+>
+> **Binding on the pilot and on Phase 1:** the memorization watch compares
+> against **+5.32 pts, not against zero**, and it is read *within level*. A
+> post-RL within-level delta of, say, +6 pts is roughly no change; the alarm
+> condition is the delta widening materially beyond this baseline, which would
+> say RL is rewarding recall rather than derivation. Is +5.32 "dramatically
+> easier", the thing the packet says to flag loudly before training? It is a real
+> and statistically clear effect, but it is a fifth of the 24-point Pass@1 hole
+> Stage B left, so it does not by itself argue for dropping the seen problems —
+> it argues for measuring the delta the right way, which now has a number.
+
 ---
 
 ## Status at 2026-08-05 21:00
