@@ -585,6 +585,44 @@ not just the easy validation tier.
 > Stage B left, so it does not by itself argue for dropping the seen problems —
 > it argues for measuring the delta the right way, which now has a number.
 
+### Run 10 — 2026-08-06 03:00 →, Part 2: THE PILOT (turing generates, spark trains)
+
+Launched automatically off the chained scripts the moment Part 0.4's bucket
+table landed; the startup model-match check fired correctly —
+`worker already on .../round1/final (v0) — skipping the redundant initial
+publish` — saving a 55 s engine rebuild against an identical checkpoint.
+
+Config: 60 steps, 4 problems/step × K=8, T=1.0/top-p 1.0, cap 12,288, τ_c 1.0,
+λ_TEA 0.05, λ_align 0.1, LR 1e-6, sync every 8, checkpoint every 20.
+Curriculum: **3,184 mixed problems** (bands: 1,366 high / 972 mid / 846 low).
+
+Step 1: `keep 4/4 | acc 0.53 | think 1176 | ans 620 | H 1.055 | teaU 0.000 |
+drift 1.45e-05 | wall 120s (gen 60 / train 60)`, `B_0` measured at 1,026 tokens.
+All four groups survived dynamic sampling, `theta_drift_rel` is non-zero, and
+`teaU 0.000` confirms TEA is selecting rather than idling.
+
+> **Finding 12 — the two boxes are almost perfectly balanced (gen 60 s / train
+> 60 s), and the loop as written makes them take turns, so half the wall-clock
+> is one box idling.** The packet's topology question was "does spark's trainer
+> step exceed ~2× turing's generation?" — the answer is **no, the ratio is
+> 1.0**, so the split topology is correct and the turing-multiplex fallback is
+> not needed. But the *scheduling* leaves 50% on the table: the trainer posts a
+> request, blocks on the response, then trains while turing sits idle.
+>
+> A balanced 1:1 split is the best possible case for prefetching, which is why
+> the fix is worth the complexity: queue step N+1's rollouts *before* spending
+> the ~60 s on step N's gradient. Implemented as `--prefetch`, **off by default
+> so this pilot's balance measurement stands unaltered**, and on for Phase 1,
+> where it should take the step from ~120 s to ~65 s. The costs are a one-step
+> lag in the curriculum (step N+1's batch is drawn before step N's `observe()`
+> lands) and up to one extra sync of policy staleness — both inside what DAPO's
+> clipping is built to absorb, and both logged.
+>
+> Note this also answers the packet's plan to have "π_0 anchor scoring ride
+> turing because turing idles while spark trains": with the anchor moved onto
+> the trainer, the *right* thing to give turing during that window is the next
+> batch of rollouts, not anchor scoring.
+
 ---
 
 ## Status at 2026-08-05 21:00
