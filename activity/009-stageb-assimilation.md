@@ -830,6 +830,67 @@ display was. Re-done with a `</think>` string split.
 > Full per-problem table: [`per_problem_tokens.txt`](assets/009/per_problem_tokens.txt)
 > (200 rows: correct- and incorrect-rollout think tokens per problem).
 
+### Run 14 — qualitative read of round-1 generations, then measured
+
+Three verbatim generations were inspected (stored in `_pass8_r1/`, full text per
+candidate), and each apparent pathology was then **measured over all 1,535
+well-formed generations** rather than asserted from the samples.
+
+A short correct one is exactly the target register — 117 think tokens,
+`goal:` → steps → `chk: 2 + 1 = 3 ✓` → `⇒ total bolts is 3`. A longer correct one
+on the *same* problem set is **not** the register: verbose numbered markdown with
+`$$` display blocks, `goal:`/`chk:` bolted on either end, and `\boxed{18}` emitted
+**inside** the think block before being repeated in the answer — the model solving
+it twice.
+
+> **Finding 18 — register adherence tracks accuracy; reversion to the native
+> verbose style is expensive.** Over 1,535 well-formed generations:
+>
+> | pattern | rate | acc with | acc without | delta |
+> |---|---|---|---|---|
+> | uses `chk:` | 84.6% | 69.1% | 55.5% | **+13.5** |
+> | uses `goal:` | 82.3% | 67.5% | 64.6% | +2.9 |
+> | verbose markdown / `$$` | 7.4% | 50.9% | 68.3% | **−17.4** |
+> | `\boxed{}` inside `<think>` | 3.1% | 43.8% | 67.7% | **−24.0** |
+> | adjacent-word stutter | 5.7% | 61.4% | 67.3% | −5.9 |
+>
+> Verbose-markdown generations are also longer (think median **273 vs 214**),
+> consistent with finding 17. `\boxed{}` inside think is a **card §1.5 violation** —
+> the exact defect activity 004 cited when eliminating register arm B — and it
+> carries the largest accuracy penalty measured here. The student inherited the
+> teacher's difficulty-dependent register abandonment (activity 008: markers/100ch
+> 3.28 → 0.71 from L1 to L9).
+>
+> The stutter (`let's let's break it down`) appears in **correct, well-formed**
+> generations at 5.7%, i.e. finding 14's loop pathology exists in embryo across the
+> whole distribution, not only in the 3.5% that diverge.
+
+> **Finding 19 — `chk:` verifies its own arithmetic, not its premises. It is
+> decorative as an error detector.**
+>
+> * **402 wrong answers still ran a `chk:` line** — 30.9% of all `chk:` uses.
+> * **90.8% of those `chk:` lines end in a ✓ pass mark.**
+>
+> The marker self-passes on nine of ten wrong answers where it appears. Mechanism,
+> verbatim from `gsm8k_test:0`: the model misread "Janet's ducks lay 16 eggs per
+> day" as *16 ducks × 16 eggs*, then wrote
+> `chk: 16 ducks × 16 eggs = 256 ✓; 256 - 3 = 253 ✓; 253 × 2 = 506 ✓` — every tick
+> arithmetically true, the premise wrong and never examined. It also silently
+> dropped the 4 muffin eggs; `chk:` did not catch that either.
+>
+> ⚠ **Do not read finding 18's +13.5 pts as `chk:` working.** That is selection —
+> generations that stay in register are the ones on solid ground, and hard problems
+> get reverted-to-prose treatment. The **90.8% self-pass rate is the direct test**
+> of whether the check detects errors, and it says no.
+>
+> **Consequence for P7 and for the card:** `verify_kept` was promoted to a Stage-A
+> selection term on the strength of activity 007's `chk` findings, and F2 reported
+> `verify_kept` at **99.2%**. That measures whether a `chk:` line *survives*
+> compression, not whether it *works*. A register whose verification marker passes
+> 90.8% of its own wrong answers cannot be relied on as a correctness signal —
+> **this belongs to the card bake-off (P3a) alongside the missing backtracking
+> primitive (finding 14).**
+
 ## Conclusion
 
 **F3 FAILS.** Stage B assimilates the register and compresses think length 7.2×,

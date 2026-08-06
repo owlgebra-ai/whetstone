@@ -224,6 +224,20 @@ Suite roles — three tiers with different touch frequencies, so headline number
   length spread tracks unreliability** (8/8 problems span 122–201; sometimes-solved
   problems span 291–1630), so it is a free difficulty signal for P7's curriculum
   bucketing.
+- **`chk:` does not verify — it self-passes on 90.8% of the wrong answers it
+  appears in.** 402 wrong answers ran a `chk:` line (30.9% of all uses) and 365 of
+  those lines end in ✓. It checks its own arithmetic, not its premises: a student
+  that misread "16 eggs per day" as "16 ducks × 16 eggs" wrote
+  `chk: 16 × 16 = 256 ✓; 256 − 3 = 253 ✓` — every tick true, the setup wrong.
+  **F2's `verify_kept` = 99.2% measures whether a `chk:` line survives compression,
+  not whether it works.** Do not treat it as a correctness signal. Belongs to the
+  card bake-off (P3a) with the missing backtracking primitive.
+- **Register adherence tracks accuracy; reverting to native prose is expensive.**
+  Over 1,535 well-formed generations: `chk:` present +13.5 pts (selection, not
+  causation — see above), verbose markdown/`$$` **−17.4**, `\boxed{}` inside
+  `<think>` **−24.0** (a card §1.5 violation, the defect that eliminated arm B),
+  adjacent-word stutter −5.9 at a 5.7% rate — finding 14's loop in embryo across
+  the whole distribution, not only the 3.5% that diverge.
 - **P7 is therefore DEFENSIBLE on the round-1 checkpoint** (not round 2, which is
   worse on every axis). F3's breached accuracy floor goes to design review rather
   than blocking. An earlier reading of this run said "P7 must not proceed"; that was
