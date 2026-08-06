@@ -115,7 +115,89 @@ Suite roles — three tiers with different touch frequencies, so headline number
 - **TODO (next executing agent, ~30 min on spark):** `gsm8k_test.jsonl` is not yet built — add the suite to `build_eval_sets.py` (`openai/gsm8k` config `main`, split `test`, same schema, pin revision) and emit to `/data/whetstone/eval/`. Contamination pre-cleared: activity 002 Run 5 checked the train pool against GSM8K-test — 0 hits.
 - Baselines (SCA / DeepCompress / prompted-compressor arms) run the identical protocol from the same checkpoint — numbers are only comparable inside the same tier and protocol.
 
-## Facts pinned by activity 010 (P7 / **F4 gate**) — IN PROGRESS, binding so far
+## Facts pinned by activity 010 (P7 / **F4 gate**) — **F4 FAILS**; binding on all later packets
+
+- **F4 FAILS on both clauses.** 60-step pilot, 4 problems/step × K=8, τ_c 1.0,
+  λ_TEA 0.05, λ_align 0.1, LR 1e-6. *Clause 2:* **no checkpoint Pareto-dominates
+  the init** — strict Pass@1 (8-draw mean, 200-problem screen, T=0.7/top-p 0.95)
+  **66.25% ± 1.46 (init) → 66.31% → 65.50% → 64.06%**, think median 219 → 235,
+  and **think-per-correct rises monotonically 331 → 335 → 342 → 367**. Paired
+  McNemar puts step0060 at **−2.19 pts (z = −1.76, p = 0.079)**. *Clause 1:*
+  `missing_think_close` at the training sampler worsens monotonically
+  **5.6% → 35.6%** with entropy rising to **5.1× the pre-RL card**.
+- **THE DIAGNOSIS — Stage C's think side is entropy-raising end to end, and this
+  checkpoint arrived entropy-rich.** Clip-higher (ε_high 0.28 > ε_low 0.20) is
+  the design's own "entropy-preserving half of the algorithm"; TEA protects
+  entropy at sharpened tokens. The answer-KL bounds the answer, the length tail
+  bounds length, **nothing bounds think entropy from above**. That is correct for
+  v1's collapsed checkpoint and wrong for this one: F3c passed at **10.1× the
+  audit baseline in median**, and 60 steps took think entropy 1.05 → **3.18
+  nats**. The first casualty is the single lowest-entropy decision in the
+  sequence — emitting `</think>`. **Before any Phase-1 rerun, cap or stop
+  raising think entropy** (cheapest test: symmetric clipping, λ_TEA = 0).
+- **The format failure is confined to the TRAINING sampler.** At T=1.0/top-p 1.0
+  `g_rate` falls to 0.658; at the eval protocol (T=0.7/top-p 0.95) step0060's
+  `g_rate` is **96.56%, above the init's 96.31%**. Top-p truncates exactly the
+  tail a high-entropy policy wanders into. So it is a **training-efficiency**
+  failure — a third of the gradient scored zero over one missing token — not
+  model rot, and the lever is the sampler or the card, not more reward pressure.
+- **The widening strict-vs-as-scored gap was NOT reward hacking.** Of 45
+  lenient-only rollouts in the last window, **42 (93%) are `g=0`** (answer in an
+  unclosed scratchpad) and only 3 are genuine `g=1` exploits. The packet reads a
+  widening gap as a grading hole; check the `g` breakdown before concluding that,
+  because the two diagnoses have opposite fixes.
+- **Always compare a statistic against itself.** `pass_at_1` from a single draw
+  vs the K-draw mean differ by **4 points** on this suite (init: 68.50%
+  single-draw vs **66.25% ± 1.46** 8-draw). Quoting 009's 64.25% against a
+  single-draw 69.00% manufactured a +4.75-point "gain" that recomputation turned
+  into −2.19. **Re-screen the baseline through the same harness; never quote it
+  from a journal.**
+- **TEA has a narrow usable window and the packet's sweep sits below it.**
+  Measured offline on 894,860 pilot think tokens (the weights depend only on
+  `logp_old` and advantages, both constants w.r.t. θ, so no GPU is needed):
+  effective tokens protected = **44.6 at τ_c 0.7**, **91.1 at 1.0**, **1,251 at
+  3.0**, **587,943 at 10.0** (uniform, i.e. inert). **Use τ_c = 3.0**; report
+  *effective tokens protected* beside it, since that is the number that says
+  whether the term does anything.
+- **TEA must be scoped to the BATCH.** Advantages are constant within a rollout,
+  so computing `Cov = centered(logp)·centered(A)` inside a single-rollout
+  micro-batch gives `Cov ≡ 0`, a uniform softmax, and a term that adds mean
+  entropy while selecting nothing — measured as `l_tea` equalling
+  `think_entropy_mean` to **eight decimal places**. Compute the weights over the
+  whole batch before the forward pass; log `uniformity` (1.0 = inert).
+- **`L_TEA = |T_r|·Σ w·H` is rescaled to a weighted MEAN — attested deviation.**
+  The literal form scales with think-token count against a per-token-mean policy
+  loss; at |T| ≈ 5,000 it gives λ_TEA·L_TEA ≈ 155 versus a policy loss of ~0.1.
+- **A loss term's scalar value says nothing about how many parameters it moves.**
+  TEA's value ran 1.3–5.0× the policy loss while touching **0.01%** of tokens.
+  Reasoning from magnitude alone led to the wrong culprit for the entropy rise;
+  the coverage statistic settled it.
+- **General rule, earned four times in this packet** (contradiction detector,
+  Gemma-era penalty detectors, TEA, register-leak): **for every detector and
+  regularizer, log a statistic that goes to a known constant when it is doing
+  nothing, and assert against that constant in a test.** A component that is
+  present, configured, logged and *inert* throws no error and moves a plausible
+  curve.
+- **The register-leak detector must require line-initial position for symbols.**
+  A bare `[⇒✗]` search was **9/9 false positives** on the pilot — every one a `⇒`
+  used as ordinary mathematical notation in an English answer ("If a polynomial
+  has a root ⇒ it has a linear factor"). 009 did not see this because it measured
+  on GSM8K; DeepMath answers are real mathematics and `⇒` is native vocabulary.
+- **Training-log curves cannot support trend claims at 4 problems/step.**
+  `think_median` CV **0.82**; `corr(batch mean p̂, acc_rate) = +0.770` with mean
+  |acc − batch p̂| = 0.050, so the apparent accuracy decline is *sampling*. Use
+  **8 problems/step with `--prefetch`**, and read trends only off the fixed
+  screen.
+- **The answer segment did NOT collapse** — `corr(step, answer_median) = −0.008`,
+  window means 379 → 354 against a 288 baseline, answer-KL stable 0.175 → 0.213.
+  The SCA band plus the π_0 anchor hold where 009 round 2 collapsed 288 → 19.
+- **The two boxes are balanced 1:1** (gen 60 s / trainer 42 s,
+  `trainer_over_rollout` **0.69**), so the split topology is correct and the
+  turing-multiplex fallback is not needed — but the serialized loop idles one box
+  half the time. `--prefetch` (implemented) overlaps them.
+
+### Facts established before the gate (still binding)
+
 
 - **F3c is settled and PASSES**, on fresh rollouts under the 009-pinned protocol
   (`entropy_audit.py --pool val_2k --n 200 --seed 0 -T 0.9 --top_p 0.95
