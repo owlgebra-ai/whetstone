@@ -115,6 +115,92 @@ Suite roles — three tiers with different touch frequencies, so headline number
 - **TODO (next executing agent, ~30 min on spark):** `gsm8k_test.jsonl` is not yet built — add the suite to `build_eval_sets.py` (`openai/gsm8k` config `main`, split `test`, same schema, pin revision) and emit to `/data/whetstone/eval/`. Contamination pre-cleared: activity 002 Run 5 checked the train pool against GSM8K-test — 0 hits.
 - Baselines (SCA / DeepCompress / prompted-compressor arms) run the identical protocol from the same checkpoint — numbers are only comparable inside the same tier and protocol.
 
+## Facts pinned by activity 010 (P7 / **F4 gate**) — IN PROGRESS, binding so far
+
+- **F3c is settled and PASSES**, on fresh rollouts under the 009-pinned protocol
+  (`entropy_audit.py --pool val_2k --n 200 --seed 0 -T 0.9 --top_p 0.95
+  --max_tokens 16384`). Round-1 student think entropy **mean 0.6198 / median
+  0.2799 / p80 1.2583**, collapse mass 39.6%, against the original checkpoint's
+  0.3176 / 0.0278 / 0.6923 / 56.8% — **median 10.1× the audit baseline**. Two
+  independent paths agree: 009's teacher-forced control slice read 0.6455 /
+  0.2603 / 1.2282. Card at `/data/whetstone/runs/entropy_stagec_init/`.
+- **The second entropy mode is at ≈0.725 nats on the student too** (local max
+  11,185 at 0.725, dips at 0.525 and 0.925), confirming activity 003 two stages
+  downstream. Mass above the design's 1.5-nat "fork" threshold is 14.6%.
+  **TEA's τ_c ∈ {0.7, 1.0} sweep is well-targeted: 0.7 sits on the mode, 1.0 in
+  the dip past it.** τ_c is a softmax temperature over covariance, *not* an
+  entropy threshold — do not conflate them when reading 003's note.
+- **The 8,192 rollout cap was a GSM8K number and is wrong for this pool.** The
+  Phase-1 set is **2,000 GSM8K (all level 1) + 2,000 DeepMath (levels 2–10)**;
+  on the DeepMath half this student runs think p50 2,218 / p95 7,681, total
+  completion p95 8,445. 8,192 truncates **5.58%** of *well-formed* generations,
+  12,288 truncates **0.00%**. **Cap is 12,288** for bucketing and RL rollouts
+  alike. Under RL this matters more than in an eval: a truncated-but-legitimate
+  generation scores `g=0 → R_acc=0`.
+- **RL rollouts and bucketing run at T=1.0 / top-p 1.0**, resolving two internal
+  contradictions in P7 in favour of its Part-1 table. Measured on 009's own 200
+  GSM8K screen: strict Pass@1 **64.25% → 48.00%** but pass@8 only **89.50% →
+  88.00%**, and **mixed groups 63.0% → 84.0%** with the saturated bucket
+  collapsing 26.5% → 4.0%. Pass@1 at the *training* temperature is not a
+  reported metric; a third more usable gradient is the trade. Cap-hit 1.06%,
+  **duplicate groups 0.00%** (vLLM `n=8` + per-problem seed needs no further work).
+- **The topology is forced by memory, not preference.** fp32 AdamW on Qwen3-1.7B
+  **OOMs on turing** (31.36 GiB capacity, fails inside `_multi_tensor_adam`,
+  reproducing 007's 28.9 GiB arithmetic) and runs on **spark at 34.7 GB peak,
+  5.93 s/optimizer step, 1,381 tok/s** (seq 1024, micro-batch 1, accum 8).
+  P7 §4's "spark = trainer" is the only placement where the packet's numerics
+  fit, and the documented fallback (turing time-multiplex) would additionally
+  force 8-bit Adam — a numerics change, not just a scheduling one.
+- **The π_0 anchor server is retired; π_0 is resident on the trainer.** Spark's
+  128 GB holds it at 3.4 GB bf16 beside the optimizer state, which turing's
+  32 GB could not (the reason `precompute_pi0_cache.py` exists). This deletes a
+  network round-trip per step and makes P7 §11's "reloading :8002 with student
+  weights corrupts the KL anchor silently" structurally impossible.
+- **TEA's `L_TEA = |T_r|·Σ w·H` is rescaled to a weighted MEAN — attested
+  deviation.** The literal form scales with think-token count while the DAPO
+  policy loss is a per-token mean; at |T| ≈ 5,000 and mean entropy 0.62 it gives
+  λ_TEA·L_TEA ≈ 155 against a policy loss of order 0.1. Default is
+  `weighted_mean` (nats, bounded by ln 512); the literal form survives as a flag
+  and **both scales are logged every step**.
+- **TEA must be scoped to the BATCH, and this is easy to get silently wrong.**
+  Advantages are constant within a rollout, so computing
+  `Cov = centered(logp)·centered(A)` inside a micro-batch of one rollout gives
+  `Cov ≡ 0`, a uniform softmax, and a term that adds mean entropy while
+  selecting nothing. Measured: `l_tea` equalled `think_entropy_mean` to **eight
+  decimal places** on every step. Fixed by computing the weights over the whole
+  batch before the forward pass (both inputs are constants w.r.t. θ). A
+  **`uniformity`** metric (1.0 = inert) is logged every step.
+- **General rule earned three times in this packet** (contradiction detector,
+  Gemma-era penalty detectors, TEA): **for every detector and regularizer, log a
+  statistic that goes to a known constant when the component is doing nothing,
+  and assert against that constant in a test.** A component that is present,
+  configured, logged and *inert* throws no error and moves a plausible curve.
+- **v1's penalty detectors do not survive the register change.** §4.7
+  register-leak matches `**Bold**` / `1. ` and §4.3 repetition operates on
+  `\n\n` chunks — both are Gemma-era. Rewritten line-oriented against this
+  register (`goal:`/`chk:`/`⇒`/`✗`, never bare substrings — `case` is an English
+  word in 10.2% of honest answers). "Keep the penalty" meant keep the intent.
+- **The empty-think attractor is live at an 8.3% base rate before any training**
+  (1 rollout in 12 on the first wiring step). The reward's guard is therefore
+  load-bearing from step 1, not a precaution: empty-think-correct scores **1.00**
+  against compact-correct's **1.35**.
+- **Strict grading is implemented in `whetstone/reward/strict.py`**, importing
+  `verify.py`'s normalizer verbatim so the two graders can differ *only* in the
+  two leniencies 009 finding 15 measured. `verify.py` untouched.
+  `StrictVerdict.lenient_only` is the dashboard curve that says the policy found
+  a grading hole.
+- **The seen/unseen memorization control must be read WITHIN level.** Seen share
+  is 42.2% at L1, **85–95% across L3–L7**, 32.8% at L9, 0% at L10 — a pooled
+  comparison would show a seen-side deficit from difficulty alone, the opposite
+  sign of the effect it is meant to detect. L2 (38 problems) and L10 (13) cannot
+  support the comparison at all.
+- **Ops:** the Phase-1 bucketing (4,000 × K=8 = 32,000 rollouts at a 12,288 cap)
+  takes **~6 h on turing**, not the packet's ~1 h — that estimate extrapolated
+  GSM8K screen throughput to a pool that is half DeepMath. A vLLM engine swap
+  (full rebuild) costs **~52–55 s**; a bf16 export costs ~11–36 s.
+  `logp_old` from vLLM vs the trainer's own forward differs by **0.013 nats**
+  (ratio_mean 0.99995), so the importance ratio is sound across the two engines.
+
 ## Facts pinned by activity 009 (P6 / **F3 gate**) — binding on all later packets
 
 - **F3 FAILS.** Stage B installs the register and compresses think length **7.2×**
