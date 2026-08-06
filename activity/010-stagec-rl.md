@@ -927,6 +927,114 @@ Checkpoints at steps 20/40/60. Median wall 105 s/step
 > structural failure that is *worsening monotonically* rather than being
 > extinguished. **F4 clause 1 fails on it.**
 
+### Run 14 — 2026-08-06 05:00, the F4 screen — and a measurement correction
+
+The F4 screen was run on all three checkpoints at the **gate protocol**
+(T=0.7, top-p 0.95, K=8, cap 8,192, the same 200 GSM8K problems 009 used), and
+then **the init was re-screened through the identical harness** rather than
+comparing against 009's published figure. That last step changed the answer.
+
+> **Finding 22 — comparing a single draw against an 8-draw mean invented a
+> +4.75-point gain that does not exist.** `stagec_bucket.py` reports
+> `pass_at_1_strict` from candidate 0 alone; activity 009 and design §12.7 report
+> Pass@1 as the **mean across the K draws** with the between-draw std. On the
+> same model, same problems, same protocol, the init reads **68.50% as one draw**
+> and **66.25% ± 1.46 as the 8-draw mean**. Against 009's 64.25%, step0060's
+> single-draw 69.00% looked like +4.75 points. Recomputed correctly it is
+> **−2.19 points**. Two definitions of "Pass@1", a 4-point gap, and a gate
+> verdict resting on it — the fix is to always compare a statistic against
+> itself, which is why the init was re-run through the same code path rather
+> than quoted from the journal.
+
+**F4 screen, all arms recomputed as the 8-draw mean, 200 problems:**
+
+| arm | strict Pass@1 | as-scored | think | answer | pass@8 | g | **think/correct** |
+|---|---|---|---|---|---|---|---|
+| **init (round-1)** | **66.25% ± 1.46** | 67.75% | **219** | 188 | 93.50% | 96.31% | **331** |
+| step0020 | 66.31% ± 2.10 | 67.69% | 222 | 194 | 94.00% | 96.31% | 335 |
+| step0040 | 65.50% ± 1.73 | 66.75% | 224 | 200 | 95.50% | 96.06% | 342 |
+| step0060 | 64.06% ± 2.93 | 65.62% | 235 | 214 | 93.50% | 96.56% | 367 |
+
+**Paired (McNemar, per problem per draw index):**
+
+| arm | wins / losses | z | p | ΔP@1 | Δthink | Δthink-per-correct |
+|---|---|---|---|---|---|---|
+| step0020 | +157 / −156 | +0.06 | 0.955 | +0.06 | +3 | +4 |
+| step0040 | +172 / −184 | −0.64 | 0.525 | −0.75 | +5 | +11 |
+| step0060 | +181 / −216 | −1.76 | 0.079 | **−2.19** | **+16** | **+36** |
+
+**Revision to finding 21 — the format degradation is confined to the training
+sampler.** At T=1.0/top-p 1.0 `g_rate` collapsed to 0.658; at the eval protocol
+step0060's `g_rate` is **96.56%, marginally better than the init's 96.31%**.
+Same model, opposite readings, because top-p 0.95 truncates exactly the tail
+that a higher-entropy policy wanders into when it should be emitting
+`</think>`. So this is **not** model rot — the deliverable is formatting fine —
+it is a **training-efficiency** failure: by the last window a third of every
+batch is scored zero for one missing token, so a third of the gradient is
+telling the model that sound reasoning was worthless. Finding 21's stronger
+claim is withdrawn; its mechanism and its data stand.
+
+Note also the widening between-draw std: **±1.46 → ±2.93**. The entropy rise
+shows up at eval as *inconsistency*, even where the mean holds.
+
+## **F4 GATE: FAIL**
+
+**Clause 2 (≥1 checkpoint Pareto-dominating the init — strict Pass@1 up at
+equal-or-less think median): FAIL, decisively.** No checkpoint qualifies. Not
+one improved Pass@1 by a significant margin, every one grew the think median,
+and think-per-correct rose monotonically **331 → 335 → 342 → 367**. step0060 is
+the *worst* arm and is marginally significantly worse than the init
+(p = 0.079).
+
+**Clause 1 (50 steps, no critical rollout-investigation flag): FAIL.** Every
+named rot pattern from v1 §7.6–7.7 is absent or extinct — loops, `case N:`
+enumeration, `chk:` chains, empty think, register leakage all at or near zero,
+and the 009 runaway class is **gone** (cap-hit 0.89% → 0.00%). But
+`missing_think_close` at the training sampler worsens **monotonically 5.6% →
+35.6%**, alongside a monotone entropy rise to **5.1× the pre-RL card** and a
+4.4× rise in word stutter. A named structural failure getting steadily worse is
+what the clause is for.
+
+### Diagnosis — and it is a design-level finding, not a knob
+
+> **Finding 23 — Stage C applies two entropy-*raising* mechanisms to a
+> checkpoint that arrived entropy-rich, and has no entropy ceiling anywhere.**
+> Both of Stage C's think-side mechanisms push entropy up: **clip-higher**
+> (ε_high 0.28 > ε_low 0.20) is described in the design as "the
+> entropy-preserving half of the algorithm", and **TEA** exists to protect
+> entropy at sharpened tokens. The answer-KL bounds the *answer* segment; the
+> length tail bounds *length*; **nothing bounds think entropy from above.**
+>
+> That design is right for the checkpoint the design anticipated — v1's
+> collapse, "entropy collapse before RL → DAPO step-50 rumination collapse". It
+> is wrong for the checkpoint that actually arrived. F3c passed *handsomely*:
+> Stage B's SED restoration left think entropy at **10.1× the audit baseline in
+> median**. Applying entropy-preserving RL to an already-restored policy pushes
+> it from 1.05 to **3.18 nats** over 60 steps, and the first thing that breaks is
+> the single lowest-entropy decision in the sequence — emitting `</think>`.
+>
+> The pilot cost ~2 h and 60 steps. It bought the finding that the *inherited
+> configuration is wrong for this checkpoint*, before a multi-day Phase 1 spent
+> its whole budget discovering the same thing. That is precisely what the gate
+> is for, and it is the reason the packet put a hard stop at step 100.
+
+### Recommended before any Phase-1 rerun (in priority order)
+
+1. **Put a ceiling on think entropy, or stop pushing it up.** The cheapest test
+   is symmetric clipping (ε_high = ε_low = 0.2) — it removes the dominant
+   entropy driver while changing nothing else. λ_TEA can go to 0 for that arm;
+   finding 19 shows TEA is not what is moving entropy anyway.
+2. **Move TEA into its usable window if it is kept at all: τ_c = 3.0**
+   (finding 18 — at 1.0 it reaches 91 of 894,860 tokens; at 10 it is uniform).
+   Report *effective tokens protected* beside it.
+3. **8 problems/step, with `--prefetch`** (findings 12, 14) — halves the batch
+   noise for roughly the current wall-clock.
+4. **Re-run the F4 screen with the init re-screened in the same harness**, and
+   always as the K-draw mean (finding 22).
+5. Treat the early-stop malformation as a **format** problem, not a reward
+   problem: at eval protocol it does not occur, so the lever is the sampler or
+   the card, not more reward pressure.
+
 ---
 
 ## Status at 2026-08-05 21:00
