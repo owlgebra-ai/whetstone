@@ -881,6 +881,52 @@ actually share the protection. Uniform would be 894,860.)
 > trend claim.** Only the fixed 200-problem screen can, which is exactly what F4
 > clause 2 is defined on.
 
+### Run 13 — 2026-08-06 04:40, pilot complete: 60/60 steps, clean exit
+
+Checkpoints at steps 20/40/60. Median wall 105 s/step
+(**rollout 60.1 s / trainer 41.6 s / scoring 0.01 s / sync ~0**),
+`trainer_over_rollout` **0.69**.
+
+> **Finding 21 — the format degrades badly in the second half: `g_rate`
+> collapses 0.935 → 0.658, and it is one failure mode, not several.**
+>
+> | steps | `g_rate` | `missing_think_close` | lenient-only | word stutter | H think |
+> |---|---|---|---|---|---|
+> | 1–10 | **0.9354** | 5.6% | 0.028 | 0.0027 | 1.048 |
+> | 11–20 | 0.9292 | — | 0.047 | 0.0024 | 1.312 |
+> | 21–30 | 0.8604 | — | 0.092 | 0.0017 | 1.594 |
+> | 31–40 | 0.8781 | — | 0.087 | 0.0040 | 1.705 |
+> | 41–50 | 0.8448 | — | 0.058 | 0.0079 | 2.081 |
+> | **51–60** | **0.6583** | **35.6%** | **0.140** | **0.0120** | **3.176** |
+>
+> The malformation is the *same* mode throughout — `missing_think_close` with
+> `finish_reason: "stop"` (109 of 114 in the last window, median 1,187 tokens,
+> only 5 at the cap). It simply becomes **6.4× more frequent**. This is finding
+> 16's early-stop failure, amplified by RL rather than cured by it.
+>
+> **The widening strict-vs-as-scored gap is a consequence, not reward hacking.**
+> The packet reads a widening gap as "the policy found a grading hole". Checked
+> directly: of 45 lenient-only rollouts in the last window, **42 (93%) are
+> `g=0`** — the answer is sitting in an unclosed scratchpad — and only **3 (7%)**
+> are genuine `g=1` grading-hole exploits. The reward is not being farmed; the
+> format is failing, and `verify.py`'s leniency is picking the wreckage up. Worth
+> stating because the two diagnoses have opposite fixes.
+>
+> **The mechanism is coherent and single-cause.** Entropy climbs monotonically
+> across the same windows (1.048 → **3.176**, now **5.1× the pre-RL card of
+> 0.620**). A less decisive policy misses a single low-entropy token — `</think>`
+> — more often; activity 007 already measured that boundary as *the* fragile one
+> ("inoculation degrades the native `</think>` boundary: entropy 7.6e-05 →
+> 0.045 → ~1.8–2.0"). Word stutter rising 4.4× (009 finding 19 calls it "the
+> loop in embryo") is the same diffusion showing up lexically. Per finding 19 the
+> entropy rise is **not** TEA — which touched 91 of 894,860 tokens — so the
+> unchecked driver is clip-higher, working as designed with nothing calibrated
+> to oppose it.
+>
+> **This is a critical rollout-investigation flag under v1 §7.6–7.7**: a named
+> structural failure that is *worsening monotonically* rather than being
+> extinguished. **F4 clause 1 fails on it.**
+
 ---
 
 ## Status at 2026-08-05 21:00
