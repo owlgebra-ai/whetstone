@@ -1090,7 +1090,9 @@ what the clause is for.
 | Part 4 Phase 2 | blocked by Part 3 |
 | Part 5 rescue | driver **built**; not run (it is a phase-boundary activity) |
 | Dashboards | **done**, 8 panels + summary JSON, verified on the real run |
-| Journal + ROADMAP facts block + §12.6 pins | **done** |
+| Journal + ROADMAP facts block | **done** |
+| design §12.6 pins | **done** — τ_c 1.0 → **3.0** (+ batch-scoped `Cov`, weighted-mean `L_TEA`, λ_TEA = 0 for the next arm); DAPO clip **0.2/0.28 → 0.2/0.2** as the cheapest test of finding 23; answer band f=32 / λ_align 0.1 pinned against target **288**; sampling, cap, batch size and the K-draw eval rule recorded. Rescue LR stays asterisked — it was built but not run |
+| P8 unblocked | **no** — P8 depends on Stage-C endpoints, which do not exist. It stays blocked on the rerun |
 
 Pilot deliverables from packet §7, each answered:
 
