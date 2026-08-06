@@ -182,16 +182,37 @@ def test_tea_cap_bounds_any_single_token() -> None:
     assert stats["cap_hit_frac"] > 0, "the cap never engaged on a spiked batch"
 
 
-def test_tea_is_scale_free_under_uniform_weights() -> None:
-    """Uniform weights must give exactly mean(H), so λ_TEA reads the same at
-    any batch size."""
-    for n in (16, 256):
+def test_tea_default_scale_is_in_nats_and_length_invariant() -> None:
+    """The attested deviation: L_TEA must stay in entropy units at any |T|.
+
+    The design's literal ``|T_r|·Σ w·H`` scales with sequence length, which makes
+    λ_TEA=0.05 mean something different in every batch and swamps a per-token
+    policy loss. The default ``weighted_mean`` scale is a weighted mean entropy.
+    """
+    for n in (16, 256, 5000):
         logp = torch.zeros(1, n)      # zero covariance everywhere -> uniform
         adv = torch.zeros(1, n)
         ent = torch.full((1, n), 0.7)
         think = torch.ones(1, n, dtype=torch.long)
-        l_tea, _ = tea_regularizer(logp, ent, adv, think)
-        assert float(l_tea) == pytest.approx(0.7, abs=1e-5)
+        l_tea, stats = tea_regularizer(logp, ent, adv, think)
+        assert float(l_tea) == pytest.approx(0.7, abs=1e-4), \
+            f"L_TEA drifted with |T|={n}"
+        # and the literal form is still logged, and does scale with |T|
+        assert stats["l_tea_literal"] == pytest.approx(0.7 * n, rel=1e-3)
+
+
+def test_tea_literal_scale_would_swamp_the_policy_loss() -> None:
+    """Documents *why* the deviation exists, with the project's real numbers."""
+    n = 5000                       # a realistic think-token count for a batch
+    ent = torch.full((1, n), 0.62)  # activity 010 entropy card: mean think 0.6198
+    logp, adv = torch.zeros(1, n), torch.zeros(1, n)
+    think = torch.ones(1, n, dtype=torch.long)
+    _, stats = tea_regularizer(logp, ent, adv, think, scale="design_literal")
+    assert 0.05 * stats["l_tea_literal"] > 100, (
+        "expected the literal form to be ~3 orders of magnitude above a "
+        "policy loss of order 0.1"
+    )
+    assert 0.05 * stats["l_tea_mean"] < 0.05
 
 
 def test_tea_is_inert_with_no_think_tokens() -> None:

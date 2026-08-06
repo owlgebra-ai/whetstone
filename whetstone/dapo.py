@@ -40,6 +40,7 @@ LEARNING_RATE = 1e-6
 TEA_TAU_C = 1.0           # swept {0.7, 1.0} in the pilot (010 finding 3)
 TEA_LAMBDA = 0.05
 TEA_CAP_C = 100.0         # a token may take at most 100× the uniform weight
+TEA_SCALE = "weighted_mean"   # attested deviation — see tea_regularizer.__doc__
 
 LAMBDA_ALIGN = 0.1        # answer-segment forward KL to π_0
 DIFFICULTY_ALPHA = 0.5    # W(x) = 1 + α·(1 − p̂)
@@ -202,6 +203,7 @@ def tea_regularizer(
     *,
     tau_c: float = TEA_TAU_C,
     cap_c: float = TEA_CAP_C,
+    scale: str = TEA_SCALE,
 ) -> Tuple[torch.Tensor, Dict[str, float]]:
     """Covariance-targeted entropy protection on think tokens (Light-IF TEA).
 
@@ -213,21 +215,37 @@ def tea_regularizer(
     positive; the caller subtracts ``λ_TEA · L_TEA``), so those tokens keep their
     entropy while everything else trains normally.
 
-    Scope is the batch's think tokens (packet: "per batch ``Cov_t``"). The
-    ``|T|`` multiplier makes ``L_TEA`` scale-free: uniform weights would give
-    exactly ``mean(H)``, so ``λ_TEA`` reads as a coefficient on mean think
-    entropy regardless of batch size.
-
     ``τ_c`` is the softmax temperature over covariance — *not* an entropy
     threshold. Activity 003 and 010 finding 3 both flag it against this
     checkpoint's ≈0.725-nat second entropy mode; the pilot sweeps {0.7, 1.0}.
+
+    Scaling — an ATTESTED DEVIATION from design §5.1 / packet §6
+    -----------------------------------------------------------
+    Both write ``L_TEA = |T_r| · Σ weight_t · H_t`` with ``λ_TEA = 0.05``. Taken
+    literally that term scales with the number of think tokens in the batch,
+    while the DAPO policy loss is a per-token **mean**. At this project's real
+    sequence lengths the two are not commensurate by 3–4 orders of magnitude:
+    with ``|T| ≈ 5,000`` and mean think entropy ≈ 0.62 (activity 010's entropy
+    card), the literal form gives ``L_TEA ≈ 3.1e3`` and ``λ_TEA·L_TEA ≈ 155``
+    against a policy loss of order 0.1 — the objective would collapse to "make
+    the output uniform" and nothing else.
+
+    ``scale="weighted_mean"`` (default) renormalizes the capped weights to sum
+    to 1, making ``L_TEA`` a weighted **mean** entropy in nats — same units as
+    the entropy card, bounded by ``ln(512) = 6.24``, and commensurate with the
+    policy loss so ``λ_TEA = 0.05`` means what the design intends. The literal
+    form is kept as ``scale="design_literal"`` so the deviation is a flag rather
+    than a fork, and **both scales are logged every step** (``tea/l_tea_mean``,
+    ``tea/l_tea_literal``) so the choice stays auditable. λ_TEA is on the run-1
+    sweep list in any case (CLAUDE.md working conventions).
     """
     m = think_mask > 0
     n_think = int(m.sum().item())
     if n_think == 0:
         z = logp.sum() * 0.0
-        return z, {"n_think": 0, "cap_hit_frac": 0.0, "weighted_entropy": 0.0,
-                   "selected_entropy_mean": 0.0, "cov_max": 0.0}
+        return z, {"n_think": 0, "cap_hit_frac": 0.0, "l_tea_mean": 0.0,
+                   "l_tea_literal": 0.0, "selected_entropy_mean": 0.0,
+                   "think_entropy_mean": 0.0, "cov_max": 0.0, "cov_min": 0.0}
 
     lp = logp[m]
     adv = token_advantages[m]
@@ -238,7 +256,15 @@ def tea_regularizer(
     cap = cap_c / float(n_think)
     w_capped = torch.clamp(w, max=cap)
 
-    l_tea = float(n_think) * (w_capped * ent).sum()
+    literal = float(n_think) * (w_capped * ent).sum()
+    weighted_mean = (w_capped * ent).sum() / w_capped.sum().clamp(min=1e-12)
+
+    if scale == "weighted_mean":
+        l_tea = weighted_mean
+    elif scale == "design_literal":
+        l_tea = literal
+    else:
+        raise ValueError(f"unknown TEA scale {scale!r}")
 
     with torch.no_grad():
         cap_hit = (w > cap).float().mean().item()
@@ -249,7 +275,9 @@ def tea_regularizer(
         stats = {
             "n_think": n_think,
             "cap_hit_frac": cap_hit,
-            "weighted_entropy": float(l_tea),
+            "l_tea_mean": float(weighted_mean),
+            "l_tea_literal": float(literal),
+            "weight_mass": float(w_capped.sum()),
             "selected_entropy_mean": float(ent[top].mean()),
             "think_entropy_mean": float(ent.mean()),
             "cov_max": float(cov.max()),
@@ -333,6 +361,7 @@ def stagec_loss(
     lambda_align: float = LAMBDA_ALIGN,
     tau_c: float = TEA_TAU_C,
     cap_c: float = TEA_CAP_C,
+    tea_scale: str = TEA_SCALE,
     kl_estimator: str = "k3",
 ) -> LossParts:
     """Assemble the Stage-C objective.
@@ -350,17 +379,20 @@ def stagec_loss(
         logp, logp_old, token_advantages, completion_mask
     )
     tea, t_stats = tea_regularizer(
-        logp, entropy, token_advantages, think_mask, tau_c=tau_c, cap_c=cap_c
+        logp, entropy, token_advantages, think_mask,
+        tau_c=tau_c, cap_c=cap_c, scale=tea_scale,
     )
     kl, k_stats = answer_kl(logp, logp_ref, answer_mask, estimator=kl_estimator)
 
     total = policy - lambda_tea * tea + lambda_align * kl
-    stats = {**{f"policy/{k}": v for k, v in p_stats.items()},
-             **{f"tea/{k}": v for k, v in t_stats.items()},
-             **{f"kl/{k}": v for k, v in k_stats.items()},
-             "loss/total": float(total), "loss/policy": float(policy),
-             "loss/tea_term": float(lambda_tea * tea),
-             "loss/kl_term": float(lambda_align * kl)}
+    with torch.no_grad():
+        stats = {**{f"policy/{k}": v for k, v in p_stats.items()},
+                 **{f"tea/{k}": v for k, v in t_stats.items()},
+                 **{f"kl/{k}": v for k, v in k_stats.items()},
+                 "loss/total": float(total.detach()),
+                 "loss/policy": float(policy.detach()),
+                 "loss/tea_term": float((lambda_tea * tea).detach()),
+                 "loss/kl_term": float((lambda_align * kl).detach())}
     return LossParts(total=total, policy=policy, tea=tea, kl=kl, stats=stats)
 
 
