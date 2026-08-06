@@ -211,18 +211,47 @@ def main(argv=None) -> int:
     rng = random.Random(args.seed)
     weights_version = 0
 
+    def _bf16_state_dict() -> dict:
+        """A bf16 **copy** for serving/checkpointing. The live weights stay fp32.
+
+        ``policy.to(torch.bfloat16)`` mutates parameters in place, and casting
+        back to fp32 does **not** restore the discarded mantissa bits. At LR 1e-6
+        an Adam step moves a weight by ~1e-6 while bf16's quantum near a typical
+        weight magnitude is ~1e-4, so every export would silently erase all
+        learning accumulated since the previous one — activity 007's documented
+        "the update rounds to zero silently" failure, re-entering through the
+        serialization path instead of the optimizer. Copy, never cast in place.
+        """
+        return {k: v.detach().to(torch.bfloat16)
+                for k, v in policy.state_dict().items()}
+
+    def _theta_norm() -> float:
+        with torch.no_grad():
+            return float(torch.cat([p.detach().flatten()
+                                    for p in policy.parameters()]).norm())
+
     def export_weights(version: int) -> None:
         nonlocal weights_version
         stage = os.path.join(args.run_dir, f"_export_v{version:06d}")
         os.makedirs(stage, exist_ok=True)
-        policy.to(torch.bfloat16).save_pretrained(stage)
-        policy.to(torch.float32)
+        before = _theta_norm()
+        policy.save_pretrained(stage, state_dict=_bf16_state_dict())
+        after = _theta_norm()
+        # Direct guard against the in-place-cast bug above: exporting must not
+        # move the live weights at all.
+        if before != after:
+            raise AssertionError(
+                f"export mutated the live policy: |θ| {before!r} -> {after!r}. "
+                "The bf16 export must be a copy; casting in place destroys the "
+                "fp32 master weights (activity 007)."
+            )
         from transformers import AutoTokenizer
         AutoTokenizer.from_pretrained(args.init_model).save_pretrained(stage)
         bus.publish_weights(stage, version)
         bus.prune_weights(keep_versions=2)
         weights_version = version
-        print(f"[train] published weights v{version}", flush=True)
+        print(f"[train] published weights v{version} "
+              f"(live |θ| unchanged at {after:.6f})", flush=True)
 
     # The worker must be generating from the checkpoint we are training. If it
     # already is (launched with the same --init_model), publishing a v1 that is
@@ -488,8 +517,12 @@ def main(argv=None) -> int:
         if step % args.ckpt_every == 0:
             d = os.path.join(args.run_dir, f"ckpt/step{step:04d}")
             os.makedirs(d, exist_ok=True)
-            policy.to(torch.bfloat16).save_pretrained(d)
-            policy.to(torch.float32)
+            before = _theta_norm()
+            policy.save_pretrained(d, state_dict=_bf16_state_dict())
+            if _theta_norm() != before:
+                raise AssertionError("checkpointing mutated the live policy")
+            from transformers import AutoTokenizer as _AT
+            _AT.from_pretrained(args.init_model).save_pretrained(d)
             print(f"[train] checkpoint -> {d}", flush=True)
 
     logf.close()
