@@ -664,6 +664,31 @@ All four groups survived dynamic sampling, `theta_drift_rel` is non-zero, and
 > to report tokens-under-protection alongside it, since that is the number that
 > says whether the term is doing anything.
 
+> **Finding 14 — at 4 problems/step the per-step length medians are noise, and
+> reading a trend from them would be a mistake.** Over the first 10 pilot steps
+> `think_median` ranges **308 → 3,404** with a coefficient of variation of
+> **0.82**, while `acc_rate` sits at CV **0.10**. The swing tracks *which
+> problems were drawn*, not the policy: correlation between a step's mean batch
+> `p_hat` and its think median is **−0.355** (easier batches, shorter thinks),
+> and the curriculum deliberately mixes bands every step.
+>
+> Two consequences. **(1)** This is why F4's second clause is defined on a
+> *fixed* 200-problem screen rather than on the training curves — the screen
+> holds the problem set constant, so a change in it is a change in the policy.
+> Any statement of the form "think length is falling" taken from the training
+> log at this batch size is unsupported. **(2)** For Phase 1, **4 problems/step
+> is too few** for a low-variance length signal. With `--prefetch` taking the
+> step to ~65 s, going to 8 problems/step costs ~110 s/step and roughly halves
+> the variance; that is the recommended Phase-1 setting, chosen from this
+> measurement rather than from the packet's silence on the parameter.
+>
+> **Reward integrity over the same 10 steps is clean on every axis the packet
+> names:** `empty_think` **0.0000 on every step** (the guard is holding — recall
+> finding 9 measured an 8.3% base rate before training), `lenient_only` max
+> 0.0625 and not widening, loop penalty max 0.0042, `g_rate` 0.875–1.000, group
+> drop rate 0–0.25, and `theta_drift_rel` **monotonically increasing**
+> 1.45e-05 → 5.76e-05.
+
 ---
 
 ## Status at 2026-08-05 21:00
