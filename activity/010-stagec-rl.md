@@ -803,6 +803,57 @@ over the pilot's first 21 steps were scanned for the named rot patterns and then
 > correction. Recording the prediction before the measurement, so the reading
 > afterwards cannot be fitted to the result.
 
+### Run 12 — 2026-08-06, the τ_c sweep, run **offline** on the pilot's own rollouts
+
+TEA's weights are `softmax(Cov/τ_c)` capped at `c/|T|`, and `Cov` is built from
+`logp_old` and the advantages — **both constants with respect to θ**, both stored
+in the pilot's response files. So the packet's τ_c sweep needs no second
+training run and no GPU: it can be recomputed exactly, on the same data the live
+run selected from. Pooled over 20 steps, **894,860 think tokens**, `Cov` range
+[−60.7, +45.7].
+
+| τ_c | tokens at the cap | **effective tokens protected** | softmax mass kept | uniformity |
+|---|---|---|---|---|
+| **0.7** (packet) | 32 | **44.6** | 0.0044 | 0 |
+| **1.0** (packet, what the pilot ran) | 58 | **91.1** | 0.0086 | 0 |
+| 3.0 | **383** | **1,251** | 0.086 | 2e-13 |
+| 10.0 | 0 | 587,943 | 1.0002 | 2.4e-05 |
+| 30.0 | 0 | 887,349 | 1.0001 | 2.9e-02 |
+| 100.0 | 0 | 894,290 | 1.0001 | 3.4e-01 |
+
+("Effective tokens" is the participation ratio `1/Σp²` — how many tokens
+actually share the protection. Uniform would be 894,860.)
+
+> **Finding 18 — TEA has a narrow usable window, the packet's sweep sits
+> entirely below it, and above it the term is inert.** Between τ_c = 3 and
+> τ_c = 10 the behaviour flips completely: at **3.0** the cap binds on 383 tokens
+> and ~1,251 share the protection, which is the regime `c = 100` was designed
+> for; by **10.0** the cap never binds at all, the mass is uniform, and `L_TEA`
+> degenerates to plain mean entropy — the exact inert case finding 8 diagnosed.
+> Below that window, the packet's **τ_c ∈ {0.7, 1.0} spans 44.6 → 91.1 effective
+> tokens out of 894,860 — 0.005% to 0.010% of the batch**, two points 2× apart
+> inside a regime where the term touches almost nothing. That sweep could not
+> have distinguished anything. **Recommended for Phase 1: τ_c = 3.0**, with
+> "effective tokens protected" reported beside it, because that is the statistic
+> that says whether the knob is in the window at all.
+
+> **Finding 19 — this refutes my own explanation in finding 17.** I hypothesised
+> the 46% entropy rise came from TEA over-protecting, on the grounds that its
+> loss *value* ran 1.3–5.0× the policy loss. The sweep kills that: at the
+> pilot's τ_c = 1.0, TEA's gradient reaches **91 of 894,860 tokens (0.01%)**. A
+> term touching one ten-thousandth of the batch cannot drive a global entropy
+> rise, however large its scalar value looks.
+>
+> The rise must therefore come from the policy-gradient side — most plausibly
+> **DAPO's clip-higher**, whose asymmetric bound (ε_high 0.28 > ε_low 0.20)
+> exists precisely to leave low-probability tokens room to gain probability, and
+> which the design calls "the entropy-preserving half of the algorithm". That is
+> the term working as intended, not a defect. The correction matters practically:
+> **lowering λ_TEA would not have fixed the entropy trend**, and if the screen
+> had come back flat I would have turned the wrong knob. Recorded as a lesson
+> about the magnitude/coverage distinction — a loss term's scalar value says
+> nothing about how many parameters it moves.
+
 ---
 
 ## Status at 2026-08-05 21:00
