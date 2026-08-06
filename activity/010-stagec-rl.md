@@ -689,6 +689,86 @@ All four groups survived dynamic sampling, `theta_drift_rel` is non-zero, and
 > drop rate 0–0.25, and `theta_drift_rel` **monotonically increasing**
 > 1.45e-05 → 5.76e-05.
 
+### Run 11 — 2026-08-06, per-checkpoint rollout investigation (v1 §7.6–7.7)
+
+F4's first clause is "no critical rollout-investigation flag", and 009 finding 11
+is the standing law that only *generative* inspection catches death. 672 rollouts
+over the pilot's first 21 steps were scanned for the named rot patterns and then
+**read verbatim**.
+
+| pattern | rate |
+|---|---|
+| empty think | **0.00%** |
+| exact line-loop (≥10 identical consecutive) | **0.00%** |
+| `case N:` enumeration ≥20 deep | **0.00%** |
+| runaway `chk:` chain (≥15 lines) | **0.00%** |
+| template line-loop (≥6 digit-blanked identical) | 0.30% |
+| `missing_think_open` | 0.15% |
+| **`missing_think_close`** | **6.10%** |
+| register leakage in the answer | 1.19% → **0.00% after finding 15** |
+
+> **Finding 15 — the register-leak penalty was firing on correct answers for
+> using standard mathematical notation: 9 of 9 detections were false.** Every
+> detection came from the bare-symbol rule matching `⇒` *mid-sentence in English
+> prose*; **zero** came from the line-initial marker rule. Verbatim:
+> *"If a polynomial has a root ⇒ it has a linear factor"*, *"Total: $32 + 18 +
+> 98 = \$138 ⇒ this shares 72 cents"*. Qwen3 writes `⇒` as ordinary notation in
+> mathematical English, and the answer segment is *supposed* to be mathematical
+> English. The register, by contrast, writes conclusions **line-initially**
+> (`⇒ 12 · 6 = 72`), so requiring line-initial position is simultaneously more
+> faithful to the register and free of these false positives. Fixed, with the
+> four verbatim shapes added as regression tests and the battery re-run green
+> per the packet's "a reward change of any kind re-runs the battery first". The
+> running pilot is unaffected (it imported the module at start), so the change
+> takes effect from Phase 1.
+>
+> Worth noting *why* 009 did not see this: it measured `answer_leak_rate`
+> 0.0013 on **GSM8K**, where answers are arithmetic prose. This pool is half
+> DeepMath, where answers are real mathematics and `⇒` is native vocabulary.
+
+> **Finding 16 — the loop tail is EXTINCT, and the malformation that replaced it
+> is a completely different failure: the model finishes its work and never emits
+> `</think>`.** Cap-hit `g=0` runs **0.89% → 0.00% → 0.00% → 0.00%** across the
+> pilot's step windows — activity 009 finding 14's runaway class, which consumed
+> 77.7% of the decode budget and made full evals take 13–17 h, does not appear at
+> the 12,288 cap on this policy.
+>
+> What remains is `missing_think_close` at a **flat ~5–6.5%**, and it is not
+> rumination. Of 44 such rollouts, **41 ended with `finish_reason: "stop"`** (not
+> `length`), median total length **1,106 tokens**, and **82% contain a
+> `\boxed{}` answer**. Read verbatim, they are *complete, correct-looking
+> solutions*:
+>
+> ```
+> <think>
+> goal: calculate total extra recess by considering each student's category.
+> ...
+> chk: all categories added correctly and final sum is positive; ...
+> The students would get a total of 27 minutes of additional recess.
+> **Final Answer**
+> \boxed{27}
+> ```
+>
+> The model reasons in the register, transitions into a normal write-up, delivers
+> a boxed answer — and never closes the block. One missing token.
+>
+> **The reward scores these 0.0000, below a wrong-but-well-formed rollout's
+> 0.1000, and that is deliberate.** An unclosed rollout has no answer segment at
+> all, so the answer-KL anchor and the SCA length band have nothing to act on —
+> crediting it would train a mode the loss cannot regulate, and the whole
+> segment-routing architecture depends on the boundary existing. The packet's
+> `r_fmt = 0.10` for well-formed-but-wrong is precisely the gradient that teaches
+> closing, and it is already in place.
+>
+> **But the rate is flat, not falling**, over 28 steps. Recorded as an open item
+> rather than an F4 critical flag: it is a pre-existing property of the Stage-B
+> student (the bucketing measured the same thing — `g` 92.67% against a 0.78%
+> cap-hit rate), not RL-induced rot, and v1 §7.6–7.7's rot patterns are about
+> *degeneration*. If it has not moved by the end of Phase 1, the cure is a format
+> intervention in the card (P3a's territory), not more reward pressure —
+> 6% of the gradient currently says "that reasoning was worthless" about
+> reasoning that was fine.
+
 ---
 
 ## Status at 2026-08-05 21:00
