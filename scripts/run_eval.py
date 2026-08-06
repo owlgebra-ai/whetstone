@@ -50,6 +50,11 @@ import sys
 import time
 from pathlib import Path
 
+# Repo root on sys.path, same as every other script here: the lazy
+# `from whetstone.segments import ...` in main() otherwise dies AFTER the
+# engine is up (30 GB allocated, then a hung vLLM teardown — activity 011).
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 # v1's system prompt. RETAINED FOR REFERENCE ONLY — it is no longer the default.
 # The P2 calibration probe (activity 003) measured it against no system prompt at
 # all on 100 rollouts each: with it, format compliance 94% and 6 rollouts emitted
