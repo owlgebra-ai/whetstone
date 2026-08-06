@@ -81,10 +81,101 @@ python scripts/entropy_audit.py \
 ```
 
 - generation: 200 rollouts in ~2 min → `rollouts.jsonl`
-- scoring: (in progress)
+- outputs: `/data/whetstone/runs/entropy_stagec_init/{audit.json,per_token_entropy.npz,*.png}`
 
-Baseline to compare against (009, original checkpoint, same protocol): think
-entropy mean **0.31759**, p50 **0.027817**, p80 **0.69234**, collapse mass 56.8%.
+**F3c — the owed measurement. PASSES, on fresh rollouts.**
+
+| think entropy | baseline (original ckpt) | **round-1 student (fresh)** | ratio |
+|---|---|---|---|
+| mean | 0.31759 | **0.61977** | 1.95× |
+| **median** | 0.027817 | **0.27991** | **10.1×** |
+| p80 | 0.69234 | **1.25825** | 1.82× |
+| collapse mass (<0.1) | 56.8% | **39.6%** | — |
+| fork mass (>1.5) | 2.8% (003, native) | **14.6%** | 5.2× |
+
+F3c's criterion is "median entropy ≥ audit baseline"; the student is at **10.1×**
+it. The gate is met with enormous margin, and the fresh-rollout number confirms
+009's teacher-forced control slice almost exactly (that slice read mean 0.6455 /
+median 0.2603 / p80 1.2282 against this run's 0.6198 / 0.2799 / 1.2582) — two
+different measurement paths agreeing is worth more than either alone.
+
+Segment split (answers are *not* where the entropy is): answer mean 0.3758,
+median 0.0300, collapse mass 57.9%. Think carries the entropy; the answer
+segment is still near-deterministic, which is the correct shape.
+
+> **Finding 3 — the second entropy mode is at ≈0.725 nats on the student too,
+> confirming activity 003 on a checkpoint two stages downstream.** Histogram of
+> the non-collapsed think mass (60 bins over 0.1–3.1 nats) shows a monotone
+> decay from the collapse spike to a **dip at 0.525** (8,475), a genuine **local
+> maximum at 0.725** (11,185), a **dip at 0.925** (8,072), then a long tail.
+> 003 measured this on the *original* checkpoint and warned that "TEA's τ_c = 1.0
+> sits above the real second mode"; Stage B did not move it. The packet's
+> τ_c ∈ {0.7, 1.0} pilot sweep is therefore well-targeted — **0.7 sits on the
+> mode, 1.0 sits in the dip past it.** Mass above the design's 1.5-nat "fork"
+> threshold is 14.6%, so a component hard-coding 1.5 would act on the tail and
+> miss the mode entirely.
+
+> **Finding 4 — the packet's 8,192 rollout cap was justified on GSM8K numbers
+> and truncates 5.6% of well-formed generations on the actual Phase-1 pool.**
+> P7 §3 pins 8,192 citing 009 Run 12's "truncates 0/377 well-formed
+> generations". That run was **GSM8K only** (think p99 3,197). The Phase-1 pool
+> is **50% DeepMath** (2,000 GSM8K L1 + 2,000 DeepMath L2–L10 — measured below),
+> and on the DeepMath distribution this student runs far longer: think p50 2,218,
+> p95 7,681; total completion p50 3,156, p95 8,445, max 10,248.
+>
+> | cap | well-formed generations truncated |
+> |---|---|
+> | 8,192 (packet) | **11/197 = 5.58%** |
+> | 10,240 | 1/197 = 0.51% |
+> | **12,288 (adopted)** | **0/197 = 0.00%** |
+> | 16,384 | 0/197 = 0.00% |
+>
+> **Cap raised to 12,288** for both bucketing and RL rollouts (they must match,
+> same argument as the temperature resolution). This is the same artifact class
+> activity 008 caught with its answer budget — "1,024 cap-outs hit 15.4% of
+> level 6 and 0% of level 1, an artifact biasing against the hard tier". Under
+> RL the bias is worse than a mis-measured eval: a truncated-but-legitimate
+> generation is scored `g=0 → R_acc=0`, so the reward would teach the model that
+> hard problems are unsolvable when they are merely long. 12,288 still starves
+> the loops (2.7× below the 32k budget at which they were characterised), and
+> costs little since only ~5% of generations reach past 8,192 at all.
+
+Also from this run, under the init checkpoint on DeepMath val at T=0.9:
+`g=0` **1.50%** (3/200, all `missing_think_close`), think p25 **745** — the
+latter is the `ThinkBudget` spread floor's order of magnitude on the hard half.
+
+### Run 4 — 2026-08-05, Part 0.4 prep: Phase-1 pool composition
+
+`/data/whetstone/corpora/stagea/subset_stagea_uids.json` (4,000) against the
+golden corpus's uid list (2,414). Split confirms the packet exactly: **2,414
+seen / 1,586 unseen**, 0 uids missing from `train_30k.jsonl`.
+
+**Source is 50/50 and perfectly confounded with level:** all 2,000 level-1
+problems are GSM8K; every level 2–10 problem is DeepMath.
+
+| level | total | seen | unseen | seen % |
+|---|---|---|---|---|
+| 1 (GSM8K) | 2,000 | 844 | 1,156 | 42.2% |
+| 2 | 38 | 5 | 33 | 13.2% |
+| 3 | 100 | 88 | 12 | 88.0% |
+| 4 | 110 | 105 | 5 | 95.5% |
+| 5 | 353 | 327 | 26 | 92.6% |
+| 6 | 546 | 494 | 52 | 90.5% |
+| 7 | 276 | 234 | 42 | 84.8% |
+| 8 | 314 | 235 | 79 | 74.8% |
+| 9 | 250 | 82 | 168 | 32.8% |
+| 10 | 13 | 0 | 13 | 0.0% |
+
+> **Finding 5 — the seen/unseen split is severely confounded with level, so a
+> pooled memorization comparison would be uninterpretable.** Seen share runs
+> 42.2% at L1, **85–95% across L3–L7**, then back down to 32.8% at L9 and 0% at
+> L10. A pooled "seen vs unseen Pass@1" therefore compares a mostly-easy unseen
+> set against a mostly-mid-difficulty seen set, and would show a *seen-side
+> deficit* from difficulty alone — the opposite sign of the memorization effect
+> it is meant to detect. **The memorization watch must be read within level, and
+> L2/L10 (38 and 13 problems, one side near-empty) cannot support the comparison
+> at all.** The packet's Part 0.4 already says "split by seen/unseen *and* by
+> level"; this is why that qualifier is load-bearing rather than decorative.
 
 ### Run 3 — 2026-08-05, Part 0.2 + Part 1b: the reward instrument (mac, CPU only)
 
