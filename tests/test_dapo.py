@@ -322,13 +322,21 @@ def test_batch_scope_makes_tea_select() -> None:
     """Across rollouts with different advantages, Cov is non-degenerate."""
     from whetstone.dapo import compute_tea_weights
 
-    logp = torch.cat([torch.full((32,), -0.05), torch.full((32,), -3.0)])
-    adv = torch.cat([torch.full((32,), 2.0), torch.full((32,), -2.0)])
+    # Three populations so covariance genuinely varies. (Two perfectly
+    # anti-correlated halves would give both the SAME covariance and a uniform
+    # softmax again — a degenerate fixture that would pass vacuously.)
+    logp = torch.cat([torch.full((20,), -0.05),   # confident + rewarded -> +cov
+                      torch.full((20,), -3.0),    # unconfident + rewarded -> -cov
+                      torch.full((20,), -0.05)])  # confident + punished  -> -cov
+    adv = torch.cat([torch.full((20,), 2.0), torch.full((20,), 2.0),
+                     torch.full((20,), -2.0)])
     w, stats = compute_tea_weights(logp, adv)
     assert stats["uniformity"] < 0.5, "TEA still uniform on a mixed batch"
     assert stats["cov_max"] > 0
-    # The confident-and-rewarded half must carry more weight than the other.
-    assert float(w[:32].sum()) > float(w[32:].sum())
+    # The confident-and-rewarded population is the one being sharpened, so it
+    # must carry the most weight — that is what TEA is for.
+    assert float(w[:20].sum()) > float(w[20:40].sum())
+    assert float(w[:20].sum()) > float(w[40:].sum())
 
 
 def test_tea_term_micro_batches_sum_to_the_batch_value() -> None:

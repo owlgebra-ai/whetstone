@@ -190,7 +190,7 @@ def token_level_policy_loss(
         n_clipped_high = ((ratio > 1.0 + eps_high) & m).sum().item()
         n_tok = int(m.sum().item()) or 1
         stats = {
-            "ratio_mean": float((ratio * completion_mask).sum() / denom),
+            "ratio_mean": float((ratio * completion_mask).sum() / max(1, n_tok)),
             "ratio_max": float(ratio[m].max()) if n_tok else 0.0,
             "clip_frac_low": n_clipped_low / n_tok,
             "clip_frac_high": n_clipped_high / n_tok,
