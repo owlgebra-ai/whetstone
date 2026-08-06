@@ -162,6 +162,9 @@ def main(argv=None) -> int:
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--rollout_timeout", type=float, default=3600.0)
     ap.add_argument("--max_grad_norm", type=float, default=1.0)
+    ap.add_argument("--prefetch", action="store_true",
+                    help="queue step N+1's rollouts before training on step N "
+                         "so the two boxes overlap (010 finding 12)")
     args = ap.parse_args(argv)
 
     import torch
@@ -210,6 +213,7 @@ def main(argv=None) -> int:
                          anneal=args.b_anneal, std_min=args.std_min)
     rng = random.Random(args.seed)
     weights_version = 0
+    posted: set = set()
 
     def _bf16_state_dict() -> dict:
         """A bf16 **copy** for serving/checkpointing. The live weights stay fp32.
@@ -275,23 +279,45 @@ def main(argv=None) -> int:
     # --- the loop ----------------------------------------------------------
     for step in range(1, args.steps + 1):
         step_t0 = time.time()
-        batch = curric.sample(args.problems_per_step, rng)
-        if not batch:
-            print("[train] curriculum exhausted — every problem retired", flush=True)
-            break
 
-        items = [{"uid": p.uid, "prompt": p.prompt, "ground_truth": p.ground_truth,
-                  "level": p.level, "p_hat": p.effective_p_hat, "seen": p.seen}
-                 for p in batch]
-        bus.post_request(RolloutRequest(
-            step=step, items=items,
-            params={"K": args.K, "temperature": args.temperature,
-                    "top_p": args.top_p, "max_tokens": args.max_tokens,
-                    "seed": args.seed},
-            weights_version=weights_version))
+        def _post(n: int) -> bool:
+            batch = curric.sample(args.problems_per_step, rng)
+            if not batch:
+                return False
+            bus.post_request(RolloutRequest(
+                step=n,
+                items=[{"uid": p.uid, "prompt": p.prompt,
+                        "ground_truth": p.ground_truth, "level": p.level,
+                        "p_hat": p.effective_p_hat, "seen": p.seen}
+                       for p in batch],
+                params={"K": args.K, "temperature": args.temperature,
+                        "top_p": args.top_p, "max_tokens": args.max_tokens,
+                        "seed": args.seed},
+                weights_version=weights_version))
+            return True
+
+        if step not in posted:
+            if not _post(step):
+                print("[train] curriculum exhausted — every problem retired",
+                      flush=True)
+                break
+            posted.add(step)
+
         t_req = time.time()
         rows = bus.wait_response(step, timeout=args.rollout_timeout)
         t_rollout = time.time() - t_req
+
+        # Prefetch: queue the NEXT batch before spending ~60 s on this one's
+        # gradient, so turing generates while spark trains instead of the two
+        # boxes taking turns. Activity 010 finding 12 measured the serialized
+        # loop at gen 60 s / train 60 s — a perfectly balanced split, which is
+        # exactly the case where prefetching nearly halves wall-clock. Costs a
+        # one-step lag in the curriculum (step N+1's batch is drawn before
+        # step N's `observe()` lands) and up to one extra sync of policy
+        # staleness, both of which DAPO's clipping is built to tolerate.
+        if args.prefetch and step + 1 <= args.steps and (step + 1) not in posted:
+            if _post(step + 1):
+                posted.add(step + 1)
 
         # --- reward + dynamic sampling -------------------------------------
         t_score0 = time.time()
