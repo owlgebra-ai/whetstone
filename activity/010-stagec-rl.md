@@ -623,6 +623,47 @@ All four groups survived dynamic sampling, `theta_drift_rel` is non-zero, and
 > the trainer, the *right* thing to give turing during that window is the next
 > batch of rollouts, not anchor scoring.
 
+> **Finding 13 — at τ_c = 1.0 the covariance softmax is so peaked that TEA
+> protects ~3 tokens out of ~50,000, and the packet's sweep explores the wrong
+> direction.** First three pilot steps:
+>
+> | step | policy loss | λ·L_TEA | tea/policy | think tokens | **tokens at the cap** | weight mass kept |
+> |---|---|---|---|---|---|---|
+> | 1 | +0.0875 | +0.1367 | 1.56 | 57,124 | **4** | — |
+> | 2 | +0.1195 | +0.1048 | 0.88 | 42,801 | **5** | **1.25%** |
+> | 3 | +0.0601 | +0.1070 | 1.78 | 59,516 | **1** | — |
+>
+> The covariance range is about **84 nats wide** (`cov_min −61.0`, `cov_max
+> +22.8`). Dividing by τ_c = 1.0 leaves an 84-wide logit range, so
+> `softmax(Cov/τ_c)` is dominated by its maximum and everything past the top
+> handful is numerically zero — `uniformity` reads **1.5e-34**. The cap then
+> clips those few to `c/|T|` and **98.75% of the softmax mass is thrown away**
+> (`weight_sum` 0.0125).
+>
+> Two things follow. First, the **`c = 100` cap is inert as designed**: a cap at
+> 100× uniform is meant to stop any one token dominating a field of ~100+
+> participants, but here only 1–5 tokens clear the noise floor at all, so `c`
+> is not the binding constraint the design intends it to be. Second — and this
+> is the actionable part — **the packet's τ_c ∈ {0.7, 1.0} sweep moves the wrong
+> way.** Smaller τ_c *sharpens* the softmax, so τ_c = 0.7 will concentrate on
+> even fewer tokens. Getting a meaningful population under protection needs τ_c
+> *larger* by roughly an order of magnitude, or the covariance standardized
+> before the softmax.
+>
+> Note the ratio column is about the loss **value**, not its influence: with the
+> weights concentrated on ~3 tokens the gradient reaching any token is ~λ_TEA/3,
+> so TEA is not overpowering the policy — it is applying a visible-looking number
+> to almost nothing. This is the *third* variant of "present, configured, logged,
+> and nearly inert" in this packet, and the reason it was caught this time in
+> three steps rather than never is that `uniformity`, `cap_hit_frac` and
+> `weight_sum` were all put on the dashboard after finding 8.
+>
+> **Not changed mid-pilot** — the pilot is the measurement, and 003/010's τ_c
+> concern was always scheduled for the sweep. The recommendation for Phase 1 is
+> to sweep **τ_c ∈ {1.0, 10, 30}** (or standardize `Cov` and keep τ_c ≈ 1), and
+> to report tokens-under-protection alongside it, since that is the number that
+> says whether the term is doing anything.
+
 ---
 
 ## Status at 2026-08-05 21:00
