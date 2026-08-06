@@ -244,6 +244,29 @@ recovers, which is precisely the derivation-vs-luck signal the 0.20 penalty
 exists for; one marginal case (extractor grabbing a verification-chain
 intermediate) noted, detector left unchanged.
 
-## Conclusion
+### Run 6 — 2026-08-06 11:50 → 17:40, primary-suite diagnostic bench (user request) + a 5.5 h stall
 
-(TBD — continuation to ~400 steps + primary-suite diagnostics in progress)
+User direction: eval init + step0100 on **MATH-500 / AMC23 / MinervaMath /
+AIME24 / AIME25** to identify further reward tweaks. Sized as a *paired
+diagnostic*, not P8 numbers: K=4, T=0.7/0.95, cap 16,384 — both models through
+the identical harness in one session; the full K=8/32k protocol stays
+reserved for P8.
+
+**The stall.** The first launch died ~2 min in and was not noticed for 5.5 h:
+`run_eval.py` was the one script in `scripts/` without the repo-root
+`sys.path` insert, and its lazy `from whetstone.segments import ...` sits
+**after** `_load_model` — so the engine came up (30 GB), the import raised,
+and the dying process **hung in vLLM teardown** (parent in `do_wait`,
+EngineCore in `futex_do_wait`) instead of exiting. The chain's `|| echo
+FAILED` never fired, the monitor saw nothing, and the GPU sat occupied by a
+corpse. Fixed in `eb54d2f` (sys.path insert at top, like every other
+script). Two hasty relaunches then raced the VRAM drain and OOMed at engine
+init; the launch that stuck kills every pid `nvidia-smi
+--query-compute-apps` reports, requires **three consecutive <200 MiB
+readings**, then starts.
+
+**Ops lessons (both earned the expensive way):** (1) crash-after-engine-load
++ hung teardown is invisible to a chain log — launch scripts must verify the
+GPU is *actually* clean (compute-apps query, repeated readings), not trust
+`kill` + one reading; (2) a failed vLLM init can itself orphan an EngineCore
+holding full allocation, so the check must run before every launch, not once.
