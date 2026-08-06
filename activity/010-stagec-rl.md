@@ -2,9 +2,9 @@
 
 - **Packet:** [packets/P7-stage-c-rl.md](packets/P7-stage-c-rl.md)
 - **Status:** done — **F4 FAILS** (both clauses); Phase 1 blocked pending the entropy-ceiling fix
-- **Machine(s):** mac (code) / turing (rollouts + π_0 anchor) / spark (trainer)
+- **Machine(s):** mac (code) / turing (rollout generation + all screens) / spark (trainer + resident frozen π_0)
 - **Code commit(s):** `624c8b8` (packet claim) → `f36de06` … HEAD
-- **Started:** 2026-08-05
+- **Started / finished:** 2026-08-05 → 2026-08-06
 
 ## Goal
 
@@ -17,6 +17,44 @@ routing + TEA, a 50–100 step pilot carrying the **F4 gate**, then Phase 1
 (recovery, 4,000 problems) and Phase 2 (boost, fresh draw).
 
 ---
+
+## Findings index
+
+Findings are numbered in the order they were *discovered*; runs below are in the
+order they were *executed*, so the two interleave. This index is the map.
+
+| # | finding | where |
+|---|---|---|
+| 1 | the reward battery caught the contradiction detector comparing whole expressions, i.e. silently inert on the register's own shape | Run 3 |
+| 2 | two of v1's "kept" penalty detectors encode the *Gemma* register and had to be rewritten | Run 3 |
+| 3 | the second entropy mode is at ≈0.725 nats on the student too — τ_c's target | Run 2 |
+| 4 | the 8,192 rollout cap was a GSM8K number; it truncates **5.58%** of this pool → **12,288** | Run 2 |
+| 5 | seen/unseen is confounded with level; a pooled memorization read is uninterpretable | Run 4 |
+| 6 | T=1.0 costs 16 pts of Pass@1 and buys **63% → 84%** mixed groups — the trade Stage C wants | Run 5 |
+| 7 | topology is forced by memory: turing **OOMs** on fp32 AdamW, spark runs it at 34.7 GB | Run 6 |
+| 8 | **TEA was completely inert** — micro-batch scoping made `Cov ≡ 0` | Run 7 |
+| 9 | the empty-think attractor is live at **8.3%** before any training | Run 7 |
+| 10 | **the bf16 export was casting the live fp32 policy in place** — 81× the update size | Run 9 |
+| 11 | the seen-vs-unseen gap is **+5.32 pts within level**; pooling hides 84% of it | Run 8 |
+| 12 | the two boxes are balanced **1:1**; the serialized loop idles one of them | Run 10 |
+| 13 | at τ_c = 1.0 TEA protects ~3 tokens of 50,000; the packet's sweep goes the wrong way | Run 10 |
+| 14 | at 4 problems/step the length medians are batch noise (CV **0.82**) | Run 10 |
+| 15 | the register-leak penalty was **9/9 false positives** on mid-prose `⇒` | Run 11 |
+| 16 | the loop tail is **extinct**; what replaced it is early-stop-without-closing | Run 11 |
+| 17 | entropy +46% over 30 steps with flat accuracy *(hypothesis later refuted by 19)* | Run 11 |
+| 18 | TEA's usable window is τ_c ≈ **3.0**; the packet's {0.7, 1.0} sits below it | Run 12 |
+| 19 | **refutes finding 17's own explanation** — TEA touched 91 of 894,860 tokens | Run 12 |
+| 20 | the apparent accuracy decline is sampling (`corr` with batch p̂ **+0.770**); answers did **not** collapse | Run 12 |
+| 21 | `g_rate` collapses **0.935 → 0.658**; the widening leniency gap is **93% format failure**, not reward hacking *(scope revised in Run 14)* | Run 13 |
+| 22 | single-draw vs K-draw Pass@1 differ by **4 pts** and manufactured a +4.75 "gain" that was really **−2.19** | Run 14 |
+| 23 | **THE DIAGNOSIS** — Stage C's think side is entropy-raising end to end, with no ceiling, applied to an already-entropy-rich checkpoint | Run 14 |
+
+Two findings were later corrected by better measurement, and both corrections are
+kept in place rather than edited away: **17 → 19** (I blamed TEA for the entropy
+rise; it reaches 0.01% of tokens and cannot be the cause) and **21 → Run 14**
+(I read the format collapse as model rot; it is confined to the training sampler
+and absent at the eval protocol).
+
 
 ## Packet corrections found before execution
 
@@ -1037,49 +1075,126 @@ what the clause is for.
 
 ---
 
-## Status at 2026-08-05 21:00
-
-**Everything the packet gates the pilot on is done, verified, and committed. The
-pilot itself is blocked on the ~6 h bucketing run and is chained to start the
-moment it lands.**
+## Deliverables against the packet's definition of done
 
 | Definition-of-done item | state |
 |---|---|
-| Part 0.1 entropy card (F3c debt + TEA baseline) | **done — F3c PASSES**, median 10.1× baseline |
+| Part 0.1 entropy card (F3c debt + TEA baseline) | **done — F3c PASSES**, median 10.1× the audit baseline |
 | Part 0.2 strict wrapper, unit-tested on finding-15 cases | **done**, 23 tests |
-| Part 0.3 `spark:8101` stopped | **done** (already down; :8100 also down, :8000 llama-swap untouched) |
-| Part 0.4 Phase-1 buckets, seen/unseen split | pool composition **done**; K=8 table **running (~6 h)** |
-| Part 1b reward battery green before pilot step 1 | **done**, 34 tests + I1–I3 property checks |
-| Part 1 DAPO loop, segment routing, TEA | **built and wired end to end**, 131 tests |
-| Part 2 pilot + F4 verdict | **chained, not yet run** |
-| Parts 3–4 Phase 1 / Phase 2 to Pareto endpoint | not started (multi-day compute) |
-| Part 5 rescue | driver **built**; runs at phase boundaries |
-| Dashboards | **built and verified** |
+| Part 0.3 `spark:8101` stopped | **done** (already down; :8100 also down; :8000 llama-swap untouched) |
+| Part 0.4 Phase-1 buckets, seen/unseen split | **done** — 4,000 problems, **79.6% mixed**, split by level × seen |
+| Part 1b reward battery green before pilot step 1 | **done**, 34 tests + I1–I3 property checks over 200 perturbations |
+| Part 1 DAPO loop, segment routing, TEA | **done**, wired end to end, 131 tests |
+| **Part 2 pilot + F4 verdict** | **done — F4 FAILS both clauses** |
+| Part 3 Phase 1 to Pareto endpoint | **blocked by the gate** (correctly) |
+| Part 4 Phase 2 | blocked by Part 3 |
+| Part 5 rescue | driver **built**; not run (it is a phase-boundary activity) |
+| Dashboards | **done**, 8 panels + summary JSON, verified on the real run |
+| Journal + ROADMAP facts block + §12.6 pins | **done** |
 
-**Test totals: 131 passing** (`tests/test_stagec_reward.py` 34,
-`test_strict_grading.py` 23, `test_dapo.py` 30, `test_curriculum.py` 13, plus
-the pre-existing segment/SED suites).
+Pilot deliverables from packet §7, each answered:
 
-### What the pilot must still deliver (packet §7)
+1. **Topology verdict** — split is correct, keep it. `trainer_over_rollout`
+   **0.69** against the packet's 2.0 inversion threshold; median step 105 s
+   (rollout 60.1 / trainer 41.6 / scoring 0.01 / sync ~0). Weight swap measured
+   at **52–55 s**, staleness **0 versions** throughout. But the loop serializes
+   the two boxes — `--prefetch` implemented, off for this run (finding 12).
+2. **F4** — **FAIL**, both clauses (above).
+3. **Reward integrity** — loop rate → 0 ✓; empty-think held at 0.000–0.007 ✓;
+   strict-vs-as-scored gap *did* widen, but **93% of it is the format failure,
+   not a grading hole** (finding 21).
+4. **Entropy + τ_c sweep** — no collapse; the opposite, a 5.1× rise (finding 17,
+   21). Sweep run **offline** at no GPU cost: usable window is τ_c ≈ 3.0, and
+   the packet's {0.7, 1.0} sits entirely below it (finding 18).
+5. **Memorization** — baseline established at **+5.32 pts within level**
+   (finding 11). The post-RL re-read and the GLM spot-check are **not done**:
+   with F4 failing and step0060 measurably worse than the init, there is no
+   improvement whose provenance needs auditing. Owed by the rerun.
+6. **Continuity evals** — substituted, recorded in advance: per-step degeneracy
+   curves from the training rollouts (a faster collapse signal than a T=0 eval,
+   and free) plus checkpoints every 20 steps screened afterwards at the full
+   protocol. The trend line is preserved; only its cadence and pipeline position
+   changed.
 
-1. topology verdict from the wall-clock split — the wiring run's split
-   (rollout 90 s / trainer 10 s) is **spark-generating** and not representative;
-   turing's numbers are the real test
-2. **F4 PASS/FAIL in bold** — 50 steps, no critical rollout flag, ≥1 checkpoint
-   Pareto-dominating the init on the 200-screen
-3. reward-integrity check (loop rate → 0, `lenient_only` not widening)
-4. entropy trajectory + the τ_c ∈ {0.7, 1.0} sweep
-5. memorization read (seen-vs-unseen **within level**, per finding 5) + GLM
-   spot-check
-6. continuity evals
+## Artifacts
 
-### Substitution recorded in advance
+| what | where |
+|---|---|
+| pre-RL entropy card (F3c) | `/data/whetstone/runs/entropy_stagec_init/{audit.json,per_token_entropy.npz,*.png}` |
+| **Phase-1 bucket table** (curriculum + memorization baseline) | `/data/whetstone/runs/stagec_buckets/phase1_init/{buckets.jsonl,buckets_summary.json}` |
+| init screen at T=1.0 (micro-check) | `/data/whetstone/runs/stagec_buckets/screen200_T10/` |
+| 200-problem screen uid list | `/data/whetstone/runs/stagec_buckets/screen200_uids.json` |
+| **pilot run** (log, rollouts, weights, checkpoints) | `/data/whetstone/runs/stagec/pilot/` |
+| per-step training log (every number in this journal) | `/data/whetstone/runs/stagec/pilot/train_log.jsonl` |
+| raw rollouts with token ids + `logp_old` | `/data/whetstone/runs/stagec/pilot/resp/step_*.jsonl` |
+| pilot checkpoints (20 / 40 / 60) | `/data/whetstone/runs/stagec/pilot/ckpt/step00{20,40,60}` |
+| **F4 screen**, all arms + init re-screened | `/data/whetstone/runs/stagec/pilot/f4/` |
+| dashboards (8 panels) | `/data/whetstone/runs/stagec/pilot/dash/stagec_dashboard.png` |
+| F4 summary (committed) | [assets/010/f4_screen.json](assets/010/f4_screen.json) |
+| topology benchmark | `/data/whetstone/runs/stagec_bench/spark.json` |
 
-The packet asks for continuity evals *every 10 steps* during the pilot. Running
-them inline stalls the pipeline (each needs the GPU that is generating
-rollouts). Substituted: **per-step degeneracy curves from the training rollouts
-themselves** (`empty_think`, `lenient_only`, loop penalty, word-stutter, g-rate
-— all already logged every step, and a strictly faster collapse signal than a
-T=0 eval), plus checkpoints every 20 steps evaluated **after** the pilot on the
-200-screen at the full protocol. The trend line is preserved; only its cadence
-and its position in the pipeline change.
+Code added by this activity (all on `main`): `whetstone/dapo.py`,
+`whetstone/curriculum.py`, `whetstone/rollout_bus.py`,
+`whetstone/reward/{strict,stagec,register_math}.py`,
+`scripts/stagec_{train,rollout_worker,bucket,dashboards,rescue,f4_screen}.py`,
+`scripts/bench_trainer_step.py`, and four test modules. **131 tests.**
+
+## Conclusion
+
+**F4 FAILS.** Sixty steps of segment-routed DAPO on the round-1 student produced
+**no improvement and mild regression**: strict Pass@1 **66.25% ± 1.46 → 64.06% ±
+2.93** on the fixed 200-problem screen (paired McNemar −2.19 pts, z = −1.76,
+p = 0.079), think median 219 → 235, and **think-per-correct rising monotonically
+331 → 335 → 342 → 367** across the three checkpoints. No checkpoint
+Pareto-dominates the init. In parallel, `missing_think_close` at the training
+sampler worsened monotonically **5.6% → 35.6%**.
+
+**What was established, beyond the verdict:**
+
+* **The substrate claim from 009 holds on the real training pool.** 79.6% of the
+  4,000 Phase-1 problems give mixed groups (~10× the original checkpoint's 8.0%
+  on GSM8K), with 39.1 points of headroom between strict Pass@1 46.35% and
+  pass@8 85.45%. Stage C's *premise* is sound; its *configuration* is not.
+* **F3c is settled and passes** — think entropy median **10.1×** the audit
+  baseline on fresh rollouts, confirmed by two independent measurement paths.
+* **009's runaway-loop class is extinct** at a 12,288 cap (cap-hit 0.89% →
+  0.00%), and the empty-think attractor never fired once in 60 steps against an
+  8.3% pre-training base rate. Both of the packet's named nightmares were
+  handled by construction.
+* **The answer segment did not collapse** (`corr(step, answer_median) = −0.008`
+  against 009 round 2's 288 → 19), so the SCA band plus the π_0 anchor work.
+
+**What the next packet must do differently** (priority order, cheapest first):
+
+1. **Stop raising think entropy, or put a ceiling on it.** This is the whole
+   diagnosis (finding 23). Stage C's think side is entropy-raising end to end —
+   clip-higher *and* TEA — with the answer-KL bounding only the answer and the
+   length tail bounding only length. That is right for v1's collapsed
+   checkpoint and wrong for one whose entropy Stage B already restored to 10.1×
+   baseline. Cheapest test: **symmetric clipping (ε_high = ε_low = 0.2) with
+   λ_TEA = 0**, which removes the dominant driver and changes nothing else.
+2. **If TEA is kept, put it in its window: τ_c = 3.0**, and report *effective
+   tokens protected* beside it (finding 18: 91 of 894,860 at τ_c = 1.0).
+3. **8 problems/step with `--prefetch`** (findings 12, 14) — halves batch noise
+   for roughly the current wall-clock.
+4. **Re-screen the baseline through the same harness every time, always as the
+   K-draw mean** (finding 22).
+5. **Treat the early-stop malformation as a format problem**, not a reward one:
+   it does not occur at the eval protocol, so the lever is the sampler or the
+   register card, not more reward pressure.
+
+**On the packet itself.** Four of its inputs were wrong or under-specified and
+were corrected against measurement during execution: the 8,192 rollout cap
+(GSM8K-derived, truncates 5.6% of this pool), the Part-0.4 bucketing temperature
+(internally contradicted by its own Part-1 table), the τ_c sweep range (below
+the usable window), and the ~1 h bucketing estimate (~6 h). The packet's
+*structure* — reward battery before step 1, hard stop at the pilot, rollout
+investigation as a gate clause — is what caught all of this, and is the reason a
+two-hour run replaced a multi-day one.
+
+**Standing rule earned four times here** (contradiction detector, two Gemma-era
+penalty detectors, TEA, register-leak): *for every detector and regularizer, log
+a statistic that goes to a known constant when the component is doing nothing,
+and assert against that constant in a test.* A component that is present,
+configured, logged and **inert** raises no error and moves a plausible curve
+forever.
