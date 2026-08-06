@@ -298,3 +298,79 @@ def test_mask_partition_accepts_boundary_tokens_being_excluded() -> None:
     """<think>/</think>/EOS belong to neither segment — under-count is legal."""
     assert_masks_partition(torch.tensor([[0, 1, 1, 0]]),
                            torch.tensor([[0, 0, 0, 1]]), [4])
+
+
+# --- batch-scoped TEA (activity 010 finding 8) ------------------------------
+
+def test_single_rollout_scope_makes_tea_inert() -> None:
+    """The bug, pinned as a test: advantages are constant within a rollout, so
+    centering them in a single-rollout micro-batch gives Cov == 0 and a uniform
+    softmax. TEA then adds mean entropy and selects nothing."""
+    from whetstone.dapo import compute_tea_weights
+
+    n = 64
+    logp = torch.randn(n)
+    adv = torch.full((n,), 0.8)        # ONE rollout: advantage is a constant
+    w, stats = compute_tea_weights(logp, adv)
+    assert stats["uniformity"] == pytest.approx(1.0, abs=1e-5), (
+        "expected the degenerate uniform case that motivated batch scoping"
+    )
+    assert stats["cov_max"] == pytest.approx(0.0, abs=1e-6)
+
+
+def test_batch_scope_makes_tea_select() -> None:
+    """Across rollouts with different advantages, Cov is non-degenerate."""
+    from whetstone.dapo import compute_tea_weights
+
+    logp = torch.cat([torch.full((32,), -0.05), torch.full((32,), -3.0)])
+    adv = torch.cat([torch.full((32,), 2.0), torch.full((32,), -2.0)])
+    w, stats = compute_tea_weights(logp, adv)
+    assert stats["uniformity"] < 0.5, "TEA still uniform on a mixed batch"
+    assert stats["cov_max"] > 0
+    # The confident-and-rewarded half must carry more weight than the other.
+    assert float(w[:32].sum()) > float(w[32:].sum())
+
+
+def test_tea_term_micro_batches_sum_to_the_batch_value() -> None:
+    """Accumulating contributions must equal computing it in one go."""
+    from whetstone.dapo import compute_tea_weights, tea_term
+
+    logp = torch.randn(120)
+    adv = torch.cat([torch.full((40,), 1.5), torch.full((40,), -0.5),
+                     torch.full((40,), 0.2)])
+    ent = torch.rand(120) + 0.1
+    w, stats = compute_tea_weights(logp, adv)
+    whole = tea_term(ent, w, weight_sum=stats["weight_sum"],
+                     n_think_total=stats["n_think"])
+    pieces = sum(
+        tea_term(ent[a:b], w[a:b], weight_sum=stats["weight_sum"],
+                 n_think_total=stats["n_think"])
+        for a, b in ((0, 40), (40, 80), (80, 120))
+    )
+    assert float(whole) == pytest.approx(float(pieces), rel=1e-5)
+
+
+def test_tea_weights_carry_no_gradient() -> None:
+    """The weights are a selector, not a term — no gradient may flow through."""
+    from whetstone.dapo import compute_tea_weights
+
+    logp = torch.randn(32, requires_grad=True)
+    adv = torch.cat([torch.ones(16), -torch.ones(16)])
+    w, _ = compute_tea_weights(logp.detach(), adv)
+    assert not w.requires_grad
+
+
+def test_policy_loss_micro_batches_sum_to_the_batch_value() -> None:
+    """Same accumulation guarantee for the token-level policy loss."""
+    logp_old = torch.zeros(3, 10)
+    logp = torch.randn(3, 10) * 0.01
+    adv = torch.randn(3, 10)
+    mask = torch.ones(3, 10)
+    total = mask.sum()
+    whole, _ = token_level_policy_loss(logp, logp_old, adv, mask, denom=float(total))
+    pieces = sum(
+        token_level_policy_loss(logp[i:i + 1], logp_old[i:i + 1], adv[i:i + 1],
+                                mask[i:i + 1], denom=float(total))[0]
+        for i in range(3)
+    )
+    assert float(whole) == pytest.approx(float(pieces), rel=1e-5)

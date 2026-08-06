@@ -155,6 +155,7 @@ def token_level_policy_loss(
     *,
     eps_low: float = CLIP_EPS_LOW,
     eps_high: float = CLIP_EPS_HIGH,
+    denom: Optional[float] = None,
 ) -> Tuple[torch.Tensor, Dict[str, float]]:
     """DAPO token-level clipped surrogate.
 
@@ -168,14 +169,20 @@ def token_level_policy_loss(
     ``eps_high > eps_low`` is DAPO's clip-higher: it leaves more room for
     low-probability tokens to *gain* probability, which is the entropy-preserving
     half of the algorithm and complements TEA.
+
+    ``denom`` overrides the normalizer with the **batch's** total completion
+    tokens, so a micro-batched accumulation sums to exactly the batch-level
+    token-level loss. Without it each micro-batch would be normalized by its own
+    length, which is sequence-level averaging wearing a token-level costume.
     """
     ratio = torch.exp(logp - logp_old)
     unclipped = ratio * token_advantages
     clipped = torch.clamp(ratio, 1.0 - eps_low, 1.0 + eps_high) * token_advantages
     per_token = -torch.min(unclipped, clipped)
 
-    denom = completion_mask.sum().clamp(min=1.0)
-    loss = (per_token * completion_mask).sum() / denom
+    d = torch.as_tensor(float(denom), device=logp.device) if denom is not None \
+        else completion_mask.sum().clamp(min=1.0)
+    loss = (per_token * completion_mask).sum() / d.clamp(min=1.0)
 
     with torch.no_grad():
         m = completion_mask > 0
@@ -195,6 +202,85 @@ def token_level_policy_loss(
 # --- TEA: token-wise entropy-adaptive regularization ------------------------
 
 
+def compute_tea_weights(
+    logp_old: torch.Tensor,
+    token_advantages: torch.Tensor,
+    *,
+    tau_c: float = TEA_TAU_C,
+    cap_c: float = TEA_CAP_C,
+) -> Tuple[torch.Tensor, Dict[str, float]]:
+    """TEA selection weights over **the whole batch's** think tokens.
+
+    Split out from :func:`tea_regularizer` because the centering is only
+    meaningful across rollouts. ``Cov_t = centered(log p_t)·centered(A_t)`` and
+    ``A_t`` is *constant within a rollout* — one scalar group advantage
+    broadcast to its tokens. Computing this inside a micro-batch of one rollout
+    makes ``centered(A_t) ≡ 0``, hence ``Cov ≡ 0``, hence a uniform softmax:
+    TEA silently degenerates into "add the mean think entropy" and selects
+    nothing. Activity 010 finding 8 caught exactly that in the wiring run.
+
+    Both inputs are constants with respect to θ (``logp_old`` is the behaviour
+    policy's, from vLLM; advantages come from the scalar reward), so the weights
+    can be computed once per optimizer step, before any forward pass, and handed
+    to each micro-batch as a constant slice. No gradient flows through the
+    selection — it is a selector, not a term.
+
+    Args:
+        logp_old: ``(N,)`` behaviour-policy logprobs of every think token in the
+            batch, concatenated in micro-batch order.
+        token_advantages: ``(N,)`` matching per-token advantages.
+
+    Returns ``(weights, stats)`` with ``weights`` the capped softmax, **not**
+    renormalized — the caller divides by ``weights.sum()`` so the normalizer is
+    shared across micro-batches.
+    """
+    n = int(logp_old.numel())
+    if n == 0:
+        return logp_old.new_zeros(0), {"n_think": 0, "cap_hit_frac": 0.0,
+                                       "weight_sum": 0.0, "cov_max": 0.0,
+                                       "cov_min": 0.0, "weight_max": 0.0}
+    cov = (logp_old - logp_old.mean()) * (token_advantages - token_advantages.mean())
+    w = torch.softmax(cov / tau_c, dim=0)
+    cap = cap_c / float(n)
+    w_capped = torch.clamp(w, max=cap)
+    stats = {
+        "n_think": n,
+        "cap_hit_frac": float((w > cap).float().mean()),
+        "weight_sum": float(w_capped.sum()),
+        "weight_max": float(w_capped.max()),
+        "cov_max": float(cov.max()),
+        "cov_min": float(cov.min()),
+        # 1.0 means perfectly uniform, i.e. TEA is selecting nothing.
+        "uniformity": float(w_capped.min() / w_capped.max())
+        if float(w_capped.max()) > 0 else 1.0,
+    }
+    return w_capped, stats
+
+
+def tea_term(
+    entropy: torch.Tensor,
+    weights: torch.Tensor,
+    *,
+    weight_sum: float,
+    n_think_total: int,
+    scale: str = TEA_SCALE,
+) -> torch.Tensor:
+    """One micro-batch's **contribution** to the batch-level ``L_TEA``.
+
+    Summing this over every micro-batch reproduces the batch quantity exactly,
+    which is what lets TEA be batch-scoped while the forward pass stays
+    micro-batched for memory.
+    """
+    if entropy.numel() == 0 or weights.numel() == 0:
+        return entropy.sum() * 0.0
+    contrib = (weights * entropy).sum()
+    if scale == "weighted_mean":
+        return contrib / max(weight_sum, 1e-12)
+    if scale == "design_literal":
+        return float(n_think_total) * contrib
+    raise ValueError(f"unknown TEA scale {scale!r}")
+
+
 def tea_regularizer(
     logp: torch.Tensor,
     entropy: torch.Tensor,
@@ -205,7 +291,13 @@ def tea_regularizer(
     cap_c: float = TEA_CAP_C,
     scale: str = TEA_SCALE,
 ) -> Tuple[torch.Tensor, Dict[str, float]]:
-    """Covariance-targeted entropy protection on think tokens (Light-IF TEA).
+    """Covariance-targeted entropy protection, computing its own weights.
+
+    ⚠ **Only correct when the tensors span multiple rollouts.** Advantages are
+    constant within a rollout, so calling this on a single-rollout micro-batch
+    gives ``centered(A) ≡ 0`` and a uniform softmax. The trainer therefore uses
+    :func:`compute_tea_weights` + :func:`tea_term` instead; this entry point is
+    kept for tests and for whole-batch callers.
 
     ``Cov_t = centered(log p_t) · centered(A_t)`` identifies tokens where being
     *confident* co-varies with being *rewarded* — the tokens whose entropy the
@@ -295,6 +387,7 @@ def answer_kl(
     answer_mask: torch.Tensor,
     *,
     estimator: str = "k3",
+    denom: Optional[float] = None,
 ) -> Tuple[torch.Tensor, Dict[str, float]]:
     """Per-token KL between the policy and frozen π_0 on **answer tokens only**.
 
@@ -325,7 +418,7 @@ def answer_kl(
     else:
         raise ValueError(f"unknown KL estimator {estimator!r}")
 
-    kl = per_tok.mean()
+    kl = per_tok.sum() / float(denom) if denom else per_tok.mean()
     with torch.no_grad():
         stats = {
             "n_answer": n,
@@ -363,6 +456,11 @@ def stagec_loss(
     cap_c: float = TEA_CAP_C,
     tea_scale: str = TEA_SCALE,
     kl_estimator: str = "k3",
+    tea_weights: Optional[torch.Tensor] = None,
+    tea_weight_sum: Optional[float] = None,
+    n_think_total: int = 0,
+    policy_denom: Optional[float] = None,
+    kl_denom: Optional[float] = None,
 ) -> LossParts:
     """Assemble the Stage-C objective.
 
@@ -376,13 +474,25 @@ def stagec_loss(
     completion_mask = ((think_mask > 0) | (answer_mask > 0)).to(logp.dtype)
 
     policy, p_stats = token_level_policy_loss(
-        logp, logp_old, token_advantages, completion_mask
+        logp, logp_old, token_advantages, completion_mask, denom=policy_denom
     )
-    tea, t_stats = tea_regularizer(
-        logp, entropy, token_advantages, think_mask,
-        tau_c=tau_c, cap_c=cap_c, scale=tea_scale,
-    )
-    kl, k_stats = answer_kl(logp, logp_ref, answer_mask, estimator=kl_estimator)
+    if tea_weights is not None:
+        # Batch-scoped selection (the correct path — see compute_tea_weights).
+        ent_sel = entropy[think_mask > 0]
+        tea = tea_term(ent_sel, tea_weights, weight_sum=tea_weight_sum or 1.0,
+                       n_think_total=n_think_total, scale=tea_scale)
+        with torch.no_grad():
+            t_stats = {"n_think": int(ent_sel.numel()),
+                       "think_entropy_mean": float(ent_sel.mean())
+                       if ent_sel.numel() else 0.0,
+                       "l_tea_contrib": float(tea.detach())}
+    else:
+        tea, t_stats = tea_regularizer(
+            logp, entropy, token_advantages, think_mask,
+            tau_c=tau_c, cap_c=cap_c, scale=tea_scale,
+        )
+    kl, k_stats = answer_kl(logp, logp_ref, answer_mask, estimator=kl_estimator,
+                            denom=kl_denom)
 
     total = policy - lambda_tea * tea + lambda_align * kl
     with torch.no_grad():
@@ -421,6 +531,7 @@ __all__ = [
     "GroupStats", "LossParts",
     "dynamic_sampling_keep", "group_advantages", "difficulty_weight",
     "route_advantages", "token_level_policy_loss", "tea_regularizer",
+    "compute_tea_weights", "tea_term",
     "answer_kl", "stagec_loss", "assert_masks_partition",
     "CLIP_EPS_LOW", "CLIP_EPS_HIGH", "GROUP_SIZE", "LEARNING_RATE",
     "TEA_TAU_C", "TEA_LAMBDA", "TEA_CAP_C", "LAMBDA_ALIGN", "DIFFICULTY_ALPHA",

@@ -42,10 +42,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from whetstone.curriculum import Curriculum
 from whetstone.dapo import (
-    CLIP_EPS_HIGH,
-    CLIP_EPS_LOW,
     GroupStats,
     assert_masks_partition,
+    compute_tea_weights,
     dynamic_sampling_keep,
     group_advantages,
     route_advantages,
@@ -282,66 +281,97 @@ def main(argv=None) -> int:
                   f"({[g.drop_reason for g in group_stats]})", flush=True)
             continue
 
-        # --- gradient ------------------------------------------------------
-        t_fwd0 = time.time()
-        opt.zero_grad(set_to_none=True)
-        n_micro = sum(len(r["candidates"]) for r, _, _ in kept)
-        acc_stats: List[dict] = []
-        logp_mismatch: List[float] = []
-
+        # --- TEA weights: batch-scoped, computed BEFORE any forward ---------
+        # Advantages are constant within a rollout, so centering them inside a
+        # single-rollout micro-batch gives Cov ≡ 0 and a uniform softmax — TEA
+        # degenerates to "add mean entropy" and selects nothing (010 finding 8).
+        # Both inputs here are constants w.r.t. θ, so the weights can be built
+        # once per step and handed to each micro-batch as a constant slice.
+        micro: List[dict] = []
         for row, sc, adv in kept:
-            P = len(row["prompt_token_ids"])
             for k, c in enumerate(row["candidates"]):
                 comp = c["token_ids"]
                 if not comp:
                     continue
-                ids = torch.tensor([row["prompt_token_ids"] + comp], device=dev)
-                # Completion-local spans → global, then to the scored slice,
-                # which starts at global index P.
-                tmask = torch.zeros(1, len(comp), device=dev)
-                amask = torch.zeros(1, len(comp), device=dev)
-                if c["g"] == 1 or c["think_end"] > c["think_start"]:
-                    tmask[0, c["think_start"]:c["think_end"]] = 1.0
+                n_lp = min(len(comp), len(c["logp_old"]))
+                tm = torch.zeros(1, n_lp)
+                am = torch.zeros(1, n_lp)
+                if c["think_end"] > c["think_start"]:
+                    tm[0, c["think_start"]:min(c["think_end"], n_lp)] = 1.0
                 if c["answer_end"] > c["answer_start"]:
-                    amask[0, c["answer_start"]:c["answer_end"]] = 1.0
-                if tmask.sum() + amask.sum() == 0:
+                    am[0, c["answer_start"]:min(c["answer_end"], n_lp)] = 1.0
+                if tm.sum() + am.sum() == 0:
                     continue
-                assert_masks_partition(tmask, amask, [len(comp)])
+                assert_masks_partition(tm, am, [n_lp])
+                lo = torch.tensor([c["logp_old"][:n_lp]], dtype=torch.float32)
+                tok_adv = route_advantages(adv[k:k + 1], tm, row.get("p_hat", 0.5))
+                micro.append({"row": row, "cand": c, "n": n_lp, "tmask": tm,
+                              "amask": am, "logp_old": lo, "tok_adv": tok_adv})
 
-                with torch.autocast("cuda", dtype=torch.bfloat16):
-                    logp, ent = score_sequence(policy, ids, P, args.logit_chunk, True)
-                    with torch.no_grad():
-                        logp_ref, _ = score_sequence(anchor, ids, P,
-                                                     args.logit_chunk, False)
-                logp = logp.unsqueeze(0)
-                ent = ent.unsqueeze(0)
-                logp_ref = logp_ref.unsqueeze(0).detach()
-                lo = torch.tensor([c["logp_old"][: logp.shape[1]]], device=dev,
-                                  dtype=logp.dtype)
-                if lo.shape[1] < logp.shape[1]:      # worker returned fewer
-                    logp = logp[:, : lo.shape[1]]
-                    ent = ent[:, : lo.shape[1]]
-                    logp_ref = logp_ref[:, : lo.shape[1]]
-                    tmask = tmask[:, : lo.shape[1]]
-                    amask = amask[:, : lo.shape[1]]
+        if not micro:
+            log({"step": step, "event": "no_usable_rollouts"})
+            continue
 
-                # Diagnostic: vLLM's logp_old vs the trainer's own forward.
-                # A large gap means kernel divergence between the two engines
-                # and would silently corrupt every importance ratio.
+        tea_w, tea_stats = compute_tea_weights(
+            torch.cat([m["logp_old"][m["tmask"] > 0] for m in micro]),
+            torch.cat([m["tok_adv"][m["tmask"] > 0] for m in micro]),
+            tau_c=args.tau_c, cap_c=args.tea_cap_c)
+        policy_denom = float(sum(float((m["tmask"] + m["amask"]).sum()) for m in micro))
+        kl_denom = float(sum(float(m["amask"].sum()) for m in micro)) or 1.0
+        offs, off = [], 0
+        for m in micro:
+            n = int(m["tmask"].sum())
+            offs.append((off, off + n))
+            off += n
+
+        # --- gradient ------------------------------------------------------
+        t_fwd0 = time.time()
+        opt.zero_grad(set_to_none=True)
+        acc_stats: List[dict] = []
+        logp_mismatch: List[float] = []
+
+        for mi, m in enumerate(micro):
+            row, c = m["row"], m["cand"]
+            P = len(row["prompt_token_ids"])
+            comp = c["token_ids"]
+            ids = torch.tensor([row["prompt_token_ids"] + comp], device=dev)
+            tmask = m["tmask"].to(dev)
+            amask = m["amask"].to(dev)
+
+            with torch.autocast("cuda", dtype=torch.bfloat16):
+                logp, ent = score_sequence(policy, ids, P, args.logit_chunk, True)
                 with torch.no_grad():
-                    logp_mismatch.append(float((logp - lo).abs().mean()))
+                    logp_ref, _ = score_sequence(anchor, ids, P,
+                                                 args.logit_chunk, False)
+            n = m["n"]
+            logp = logp[:n].unsqueeze(0)
+            ent = ent[:n].unsqueeze(0)
+            logp_ref = logp_ref[:n].unsqueeze(0).detach()
+            lo = m["logp_old"].to(dev, dtype=logp.dtype)
 
-                tok_adv = route_advantages(adv[k:k + 1].to(dev), tmask,
-                                           row.get("p_hat", 0.5))
-                parts = stagec_loss(
-                    logp=logp, logp_old=lo, logp_ref=logp_ref, entropy=ent,
-                    token_advantages=tok_adv, think_mask=tmask, answer_mask=amask,
-                    lambda_tea=args.lambda_tea, lambda_align=args.lambda_align,
-                    tau_c=args.tau_c, cap_c=args.tea_cap_c,
-                    tea_scale=args.tea_scale)
-                (parts.total / max(1, n_micro)).backward()
-                acc_stats.append(parts.stats)
-                del logp, ent, logp_ref, parts
+            # Diagnostic: vLLM's logp_old vs the trainer's own forward. A large
+            # gap means kernel divergence between the two engines and would
+            # silently corrupt every importance ratio.
+            with torch.no_grad():
+                logp_mismatch.append(float((logp - lo).abs().mean()))
+
+            s0, s1 = offs[mi]
+            parts = stagec_loss(
+                logp=logp, logp_old=lo, logp_ref=logp_ref, entropy=ent,
+                token_advantages=m["tok_adv"].to(dev),
+                think_mask=tmask, answer_mask=amask,
+                lambda_tea=args.lambda_tea, lambda_align=args.lambda_align,
+                tau_c=args.tau_c, cap_c=args.tea_cap_c,
+                tea_scale=args.tea_scale,
+                tea_weights=tea_w[s0:s1].to(dev),
+                tea_weight_sum=tea_stats["weight_sum"],
+                n_think_total=tea_stats["n_think"],
+                policy_denom=policy_denom, kl_denom=kl_denom)
+            # Already normalized by batch-level denominators, so each
+            # micro-batch contributes its exact share — no /n_micro.
+            parts.total.backward()
+            acc_stats.append(parts.stats)
+            del logp, ent, logp_ref, parts
 
         gnorm = torch.nn.utils.clip_grad_norm_(policy.parameters(), args.max_grad_norm)
         opt.step()
@@ -362,6 +392,10 @@ def main(argv=None) -> int:
         def _m(key: str) -> float:
             vals = [s[key] for s in acc_stats if key in s]
             return float(statistics.mean(vals)) if vals else 0.0
+
+        def _sum(key: str) -> float:
+            """Loss terms are batch-normalized *contributions* — sum, never mean."""
+            return float(sum(s[key] for s in acc_stats if key in s))
 
         all_bd = [b for _, sc, _ in kept for b in sc["breakdowns"]]
         rec = {
@@ -395,14 +429,22 @@ def main(argv=None) -> int:
                 "word_stutter_rate": float(statistics.mean(
                     [b.flags["word_stutter"]["rate"] for b in all_bd])),
             },
-            "loss": {"total": _m("loss/total"), "policy": _m("loss/policy"),
-                     "tea_term": _m("loss/tea_term"), "kl_term": _m("loss/kl_term")},
-            "tea": {"l_tea_mean": _m("tea/l_tea_mean"),
-                    "l_tea_literal": _m("tea/l_tea_literal"),
-                    "think_entropy_mean": _m("tea/think_entropy_mean"),
-                    "selected_entropy_mean": _m("tea/selected_entropy_mean"),
-                    "cap_hit_frac": _m("tea/cap_hit_frac")},
-            "kl": {"mean": _m("kl/kl_mean"), "n_answer": _m("kl/n_answer")},
+            "loss": {"total": _sum("loss/total"), "policy": _sum("loss/policy"),
+                     "tea_term": _sum("loss/tea_term"),
+                     "kl_term": _sum("loss/kl_term")},
+            "tea": {
+                # Batch-level selection stats (computed before the forward pass).
+                "l_tea": _sum("tea/l_tea_contrib"),
+                "think_entropy_mean": _m("tea/think_entropy_mean"),
+                "n_think": tea_stats["n_think"],
+                "cap_hit_frac": tea_stats["cap_hit_frac"],
+                "weight_sum": tea_stats["weight_sum"],
+                "weight_max": tea_stats["weight_max"],
+                # 1.0 = perfectly uniform = TEA selecting nothing (010 finding 8).
+                "uniformity": tea_stats["uniformity"],
+                "cov_max": tea_stats["cov_max"], "cov_min": tea_stats["cov_min"],
+            },
+            "kl": {"mean": _sum("kl/kl_mean"), "n_answer": _m("kl/n_answer")},
             "clip": {"low": _m("policy/clip_frac_low"),
                      "high": _m("policy/clip_frac_high"),
                      "ratio_mean": _m("policy/ratio_mean")},
@@ -418,6 +460,7 @@ def main(argv=None) -> int:
         print(f"[train] step {step:4d} | keep {len(kept)}/{len(rows)} | "
               f"acc {r['acc_rate']:.2f} | think {r['think_median']:.0f} | "
               f"ans {r['answer_median']:.0f} | H {rec['tea']['think_entropy_mean']:.3f} | "
+              f"teaU {rec['tea']['uniformity']:.3f} | "
               f"drift {drift:.2e} | "
               f"wall {rec['wall']['total']:.0f}s "
               f"(gen {t_rollout:.0f} / train {t_fwd:.0f})", flush=True)
