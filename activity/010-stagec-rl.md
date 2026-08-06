@@ -414,3 +414,27 @@ closely enough that the importance ratio is sound.
 > error. TEA's curve would have moved, plausibly, forever. It is worth stating as
 > a rule: **for every regularizer, log a statistic that goes to a known constant
 > when the term is doing nothing**, and assert against that constant in a test.
+
+**TEA verified live after the fix** (same wiring harness, 3 problems × K=4):
+
+| metric | before (inert) | **after (batch-scoped)** |
+|---|---|---|
+| `uniformity` (1.0 = selecting nothing) | **1.00000** | **0.00000** |
+| `cov` range | [0, 0] | **[−39.33, +19.26]** |
+| `cap_hit_frac` | 0.0 | 0.0012 (7 of 5,792 tokens) |
+| `weight_max` | = uniform | **0.017265** = the cap `c/|T|` = 100/5792 exactly |
+| `L_TEA` vs plain mean think entropy | **identical** | **2.636 vs 1.463** |
+
+`weight_max` landing exactly on `c/|T|` is the cap doing its job: the softmax
+wants to concentrate further and is clipped. `L_TEA` is now a genuinely
+different quantity from mean entropy, which is the minimum bar for the term
+being alive.
+
+Note what it selects: with `cov_min = −39.3` far larger in magnitude than
+`cov_max = +19.3`, the top-covariance tokens are *low-confidence tokens in
+penalized rollouts*, whose entropy the update would spend by pushing them down.
+That is on-target for the formula as written (positive covariance in either
+direction means the update sharpens that position), but it is **not** the
+"confident-and-rewarded" reading one might assume, and `selected_entropy_mean >
+think_entropy_mean` is the observable difference. Whether `τ_c = 0.7` shifts the
+selection toward the other lobe is exactly what the pilot's sweep measures.
