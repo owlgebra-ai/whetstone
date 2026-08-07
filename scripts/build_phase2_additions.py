@@ -116,14 +116,18 @@ def main(argv=None) -> int:
         rows.append({"_uid": _uid(prefix, n), "prompt": prompt.strip(),
                      "ground_truth": gold, "level": level, "source": source})
 
-    # --- hendrycks MATH, train split only ------------------------------------
+    # --- hendrycks MATH, train split only (7 per-subject configs) -------------
+    SUBJECTS = ["algebra", "counting_and_probability", "geometry",
+                "intermediate_algebra", "number_theory", "prealgebra",
+                "precalculus"]
     by_level: dict = {1: [], 2: [], 3: [], 4: [], 5: []}
-    ds = load_dataset("EleutherAI/hendrycks_math", "all", split="train")
-    for r in ds:
-        m = re.search(r"(\d)", r.get("level") or "")
-        lv = int(m.group(1)) if m else 0
-        if lv in by_level:
-            by_level[lv].append(r)
+    for subj in SUBJECTS:
+        ds = load_dataset("EleutherAI/hendrycks_math", subj, split="train")
+        for r in ds:
+            m = re.search(r"(\d)", r.get("level") or "")
+            lv = int(m.group(1)) if m else 0
+            if lv in by_level:
+                by_level[lv].append(r)
     for lv in (4, 5):
         for r in by_level[lv]:
             _add(r["problem"], _last_boxed(r["solution"]), lv, "hendrycks_math", "math")
