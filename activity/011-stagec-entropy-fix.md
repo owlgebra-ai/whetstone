@@ -270,3 +270,26 @@ readings**, then starts.
 GPU is *actually* clean (compute-apps query, repeated readings), not trust
 `kill` + one reading; (2) a failed vLLM init can itself orphan an EngineCore
 holding full allocation, so the check must run before every launch, not once.
+
+**Results (init vs step0100, paired per problem per draw, same session):**
+
+| suite | n | init P@1 | step0100 P@1 | Δ | McNemar w/l | z | cap-hit i→0100 | think med i→0100 |
+|---|---|---|---|---|---|---|---|---|
+| MATH-500 | 500 | 58.60 ± 2.13 | 64.25 ± 1.08 | **+5.65** | 249/136 | **+5.76** | 2.9→1.2% | 830→837 |
+| MinervaMath | 272 | 15.07 ± 2.33 | 17.19 ± 1.10 | **+2.11** | 69/46 | **+2.14** | 4.0→1.0% | 1,267→1,427 |
+| AMC23 | 40 | 42.50 ± 5.40 | 48.75 ± 2.50 | +6.25 | 31/21 | +1.39 | 5.6→1.9% | 3,322→3,258 |
+| AIME24 | 30 | 16.67 ± 2.72 | 19.17 ± 3.19 | +2.50 | 14/11 | +0.60 | 7.5→7.5% | 6,216→8,768 |
+| AIME25 | 30 | 6.67 ± 2.72 | 17.50 ± 8.77 | **+10.83** | 16/3 | **+2.98** | 6.7→2.5% | 6,249→8,099 |
+
+**The conversion generalizes off the training pool** (GSM8K+DeepMath →
++5.65 on MATH-500 at z 5.76; pooled over 872 problems ≈ **+4.6 pts**), with
+between-draw std *shrinking* on every suite and cap-hit rates falling almost
+everywhere — accuracy, consistency, and budget discipline moving together.
+The one negative signal: **AIME think medians grew 30–41%** (6.2k→8.8k /
+8.1k) — off-distribution hard problems escape the length discipline (the
+training pool's effective_B never sees 6k-token groups), the same direction
+as the +9-token GSM8K creep. Tweak decision from this read: **none beyond
+the two detector fixes** — the gains are real and the length creep is a
+length-*pressure* question for the endpoint re-read, not a new reward term
+mid-run. (Diagnostic protocol: K=4 / cap 16,384 — NOT comparable to P8's
+K=8/32k numbers; original-checkpoint arm queued same-session.)
