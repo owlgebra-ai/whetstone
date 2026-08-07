@@ -358,8 +358,72 @@ the annealed budget floor. Launch scripts now verify GPU-clean via
 `--query-compute-apps` with three consecutive <200 MiB readings (Run 6's
 lesson, mechanized).
 
+### Run 9 — 2026-08-07 morning, the continuation completes + the global-400 endpoint
+
+300 steps clean (global 101→400). 50-step windows: H **0.927 → 0.785**
+(gentle monotone sharpening, never collapse), mtc **3.4% → 1.2%** against the
+~6% pre-RL base rate, g(all) → **0.984**, drops 751 all-correct vs 22
+all-wrong (saturating from the top), drift monotone to 3.1e-4. The
+entropy-thermostat arm (B) was never triggered across 400 total steps.
+
+**Endpoint ladder** (one session, extended grader; init re-screened,
+8-draw means; global-150/200 rungs lost to a screen-cache tag collision,
+fixed in the regate script afterwards):
+
+| ckpt (global) | strict P@1 | think med | think/correct | ΔP@1 | z |
+|---|---|---|---|---|---|
+| init | 67.12% ± 2.03 | 218 | 818 | — | — |
+| 50 | 69.94% ± 2.09 | 223 | 772 | +2.81 | +2.46 |
+| 100 | 71.50% ± 2.22 | 229 | 631 | +4.37 | +3.50 |
+| 250 | 72.31% ± 2.02 | 229 | 583 | +5.19 | +4.01 |
+| 300 | 72.56% ± 2.56 | 227 | 573 | +5.44 | +4.19 |
+| 350 | 74.75% ± 1.89 | 229 | 556 | +7.63 | +5.87 |
+| **400** | **75.31% ± 2.14** | 232 | 565 | **+8.19** | **+6.37** | 
+
+Eval g-rate 96.25% → **99.31%**. Monotone gain through 400, think flat
+227–232 — the "think rising while ΔP@1 plateaus" alarm never fired. Strict
+Pareto letter still unmet (+14 think tokens vs init); think-per-correct −31%.
+**Endpoint checkpoint: `pilot2_armA_cont/ckpt/step0300` (global 400).** Not
+plateaued → user directs continuation (below).
+
+### Run 10 — 2026-08-07, three-way bench + Phase-2 pool + launch to global 1000
+
+**Original-checkpoint bench arm completed** (same protocol; separate session
+from the paired init/step0100 screens — identical config and seed, caveat
+recorded): MATH-500 **77.50 ± 0.60** (think med 3,266), AMC23 73.12, Minerva
+26.19, AIME24 38.33, AIME25 31.67 — with AIME25's think median AT the 16,384
+cap, so the original's hard-suite numbers are cap-suppressed lower bounds.
+The compression tax at Stage-B was ~19 pts on MATH-500 (77.5 → 58.6) for ~4×
+shorter thinks; RL had recovered +5.65 by global 100. Per-token the student
+dominates (64.25% @ 837 vs 77.50% @ 3,266).
+
+**Phase-2 pool (user direction: continue to ~1000; add
+`EleutherAI/hendrycks_math` + `AI-MO/aimo-validation-amc`).** Built by
+`scripts/build_phase2_additions.py` + the P1 8-gram checker, two independent
+contamination gates:
+
+- AMC: 83 → **43 survivors** — the exact gate removed the 40 AMC-2023 twins
+  of the `amc23` EVAL suite. Only AMC-2022 trains.
+- MATH (train split only, 7 subject configs): −1,024 duplicates already in
+  train_30k (DeepMath derives partly from MATH), −50 eval-exact, −75 no
+  boxed answer, −5 MATH-500 near-dups caught only by the 8-gram gate →
+  **3,780**. Draw: all L4 (1,285) + all L5 (1,733) + 467 L3 + 295 L1–2.
+- Combined `phase2_pool.jsonl`: **7,823** = original 4,000 + 3,823. New rows
+  carry native levels under their own sources; all are unseen-by-SFT, so the
+  memorization read stays within the original 4,000.
+
+Also fixed in passing: four more scripts missing the repo-root sys.path shim
+(incl. `check_contamination.py` itself), found by auditing after run_eval's
+instance of the same class.
+
+**Chained** (running): re-bucket all 7,823 under the endpoint ckpt (K=8,
+T=1.0/1.0, cap 12,288, seen tags carried) → memorization within-level
+re-read vs the +5.32 baseline → worker + trainer, **600 steps global
+400→1000**, config unchanged (eps 0.2/0.2, λ_TEA 0, 8/step, prefetch,
+B floor 120), run dir `pilot2_phase2`.
+
 ## Conclusion
 
-(TBD — continuation to 400 running; endpoint screens + memorization
-within-level re-read + original-model bench + ROADMAP/§12.6/packet flips owed
-at completion)
+(TBD — phase 2 to global 1000 in flight; owed at its endpoint: screens,
+memorization re-read, three-way re-bench of the final model, rescue decision,
+ROADMAP facts block, §12.6 pins, packet flips)

@@ -189,9 +189,17 @@ def main(argv=None) -> int:
     init_pp = run_screen(args.init, args.out_dir, args.K, args.force, "init")
     init_s = screen_stats(init_pp)
 
+    # Tags must be unique per checkpoint PATH: two runs both have a
+    # "step0050", and a collided tag silently REUSES the first one's cached
+    # screen (activity 011: the global-150/200 rungs were skipped this way).
+    basenames = [os.path.basename(os.path.normpath(c)) for c in args.checkpoints]
     arms = []
     for c in args.checkpoints:
         tag = os.path.basename(os.path.normpath(c))
+        if basenames.count(tag) > 1:
+            run_name = os.path.basename(
+                os.path.dirname(os.path.dirname(os.path.normpath(c))))
+            tag = f"{run_name}_{tag}"
         pp = run_screen(c, args.out_dir, args.K, args.force, tag)
         s = screen_stats(pp)
         s["name"] = tag
