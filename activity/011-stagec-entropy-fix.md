@@ -293,3 +293,73 @@ the two detector fixes** — the gains are real and the length creep is a
 length-*pressure* question for the endpoint re-read, not a new reward term
 mid-run. (Diagnostic protocol: K=4 / cap 16,384 — NOT comparable to P8's
 K=8/32k numbers; original-checkpoint arm queued same-session.)
+
+### Run 7 — 2026-08-06 evening, failure-pattern analysis (subagent) → the grader extension
+
+A subagent read the step-0100 bench rollouts (all 3,488 classified, ~55 full
+manual reads): persistent failures (0/4, 1/4), the 136 MATH-500 McNemar
+losses, and near-miss draw contrasts. Artifacts:
+`/data/whetstone/runs/stagec/pilot2_armA/bench/failure_analysis/{report.md,patterns.json,exemplars/}`.
+
+**Finding A — the verifier was silently rejecting correct answers at +6.8 pts
+(MATH-500) / +5.5 pts (Minerva).** Seven deterministic format classes
+(`2k + 2` vs `2k+2`; `\dfrac{4}{3}` vs `\frac43`; `2.7778 \times 10^{-6}` vs
+`2.7778e-6` — a format Minerva prompts *demand*; `^\circ`; binder prefixes;
+`\text{(C)}`; symbolic fracs). Init and RL model hit equally → every paired
+delta stands; but under RL these are **false-negative rewards**: a correct
+rollout scored 0 inverts its within-group advantage. **Fixed** as
+`whetstone/reward/normalize_ext.py` (`6c7d0f9`): deterministic equivalence
+only, tried after the verbatim strict path fails, `verify.py` untouched per
+the invariant; the analysis's 2%-rounding proposal **rejected** (that is
+leniency, i.e. Goodhart bait — `698` vs `700` stays wrong, pinned as a
+negative control). Battery 175 green. Landed **before the continuation's
+first step** — a boundary application, not a mid-run change.
+
+**Finding B — the MATH-500 regressions are overthink, not format.** Of 136
+losses: cap 7, gate 6; the rest think +252 tokens longer than init's winning
+draws, with three read mechanisms: second-guessing a correct result ("derives
+1997/2 … 'likely expects an integer' … boxes 998"), re-derivation slips in
+long verify passes (incl. false `chk:` ✓ on 993=999), and admitted-guess
+confabulation. Near-miss draws are *longer* than winning draws everywhere
+except Minerva (which bails early instead). RL meanwhile **halved** eval-time
+`missing_think_close` (3.9→1.8%) and cap rates — the format story is healthy;
+the cost center is churn. Phase-2 candidate levers, not applied now:
+think-final/answer consistency shaping; windowed anti-loop repetition penalty
+(~30 cap-burning arithmetic loops read).
+
+**Finding C — capability ceiling map.** Wrong-math dominates true failures
+(70% MATH-500 → 98% AIME25). True derived-then-lost is <1%. Most Minerva 0/4
+(physics/chem constants) and AIME depth are not RL-recoverable at 1.7B.
+
+**Contamination guard, stated loudly:** the analysis's per-suite
+`rescue_uids_*.json` lists are **diagnostic only** — benchmark problems must
+NEVER enter the rescue/training path. Rescue's clientele remains the training
+pool's 0/8 bucket (580 problems), exclusively.
+
+**Scheduling call:** the original-checkpoint bench arm measured ~8.65
+s/problem on MATH-500 (uncompressed thinking) → 4–6 h for the five suites; it
+was killed at 56% of MATH-500 and **deferred to post-continuation** so the
+critical-path RL run gets the night. Partial output discarded; the three-way
+table will be rebuilt fresh (identical protocol; cross-session caveat to be
+noted when reported). One self-inflicted ops repeat: a `pgrep -f pattern |
+kill` whose pattern appeared in my own ssh command line killed the remote
+shell — the bracket trick (`pgrep -f "[r]un_eval"`) or explicit PIDs, always.
+
+### Run 8 — 2026-08-06 ~21:00 →, the continuation: steps 101–400
+
+Worker (turing, pid in `$RUN/worker.pid`) serves
+`.../pilot2_armA/ckpt/step0100`; trainer (spark) runs 300 steps, same Arm A
+config, reward at `6c7d0f9` (leak + repeat + normalize_ext fixes — all three
+are defect repairs, attested as the continuation's only delta beside the
+restart). Run dir `/data/whetstone/runs/stagec/pilot2_armA_cont/`.
+**Attested:** bf16-checkpoint restart (fp32 master + AdamW moments existed
+only in the finished process), fresh drift baseline, `--b_init 120` carries
+the annealed budget floor. Launch scripts now verify GPU-clean via
+`--query-compute-apps` with three consecutive <200 MiB readings (Run 6's
+lesson, mechanized).
+
+## Conclusion
+
+(TBD — continuation to 400 running; endpoint screens + memorization
+within-level re-read + original-model bench + ROADMAP/§12.6/packet flips owed
+at completion)
