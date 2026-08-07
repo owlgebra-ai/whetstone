@@ -22,11 +22,15 @@ optimizer will find and sit in:
    cases in 1,600 candidates: "the model knew it and could not stop". Under RL
    this pays the loop tail (2.7–3.5% of generations) for not terminating.
 
-The strict grader removes exactly those two behaviours and **nothing else**.
-Normalization (:func:`whetstone.verify._normalize`) and numeric coercion
-(:func:`whetstone.verify._try_numeric`) are imported verbatim rather than
-re-implemented, so the two graders can only ever differ in the two documented
-ways. If the normalizer changes, both move together.
+The strict grader removes exactly those two behaviours — and, since activity
+011, additionally accepts the seven **deterministic notational equivalences**
+of :mod:`whetstone.reward.normalize_ext` (measured as +6.8/+5.5 pts of false
+negatives on MATH-500/Minerva; each class fixture-pinned). Normalization
+(:func:`whetstone.verify._normalize`) and numeric coercion
+(:func:`whetstone.verify._try_numeric`) are still imported verbatim and tried
+first; the extension runs only after they fail, so historical strict
+acceptance is a strict subset of the current one, and the two graders can
+differ only in the two removals plus the seven pinned equivalence classes.
 
 Reporting contract
 ------------------
@@ -156,6 +160,12 @@ def verify_strict(completion: str, ground_truth: str) -> StrictVerdict:
     if pp is not None and pg is not None and math.isclose(
         pp, pg, rel_tol=1e-6, abs_tol=1e-9
     ):
+        return StrictVerdict(True, as_scored, pred, "")
+
+    # Deterministic notational equivalence (activity 011) — tried last so the
+    # verbatim path above stays the primary contract.
+    from whetstone.reward.normalize_ext import equivalent_ext
+    if equivalent_ext(pred, gold):
         return StrictVerdict(True, as_scored, pred, "")
 
     # NO suffix fallback here. This is the whole point of the module.
