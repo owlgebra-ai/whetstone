@@ -24,6 +24,11 @@ import os
 import random
 import sys
 
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from whetstone.poolutil import read_jsonl
 from whetstone.verify import verify_response
 

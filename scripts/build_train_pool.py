@@ -47,6 +47,11 @@ import re
 from collections import Counter
 from typing import Iterable
 
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from whetstone.poolutil import (
     dedup_key,
     norm_text,

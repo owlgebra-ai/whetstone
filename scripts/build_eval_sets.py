@@ -49,6 +49,11 @@ import os
 import random
 import re
 
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from whetstone.poolutil import norm_text, read_jsonl, stratified_sample, write_jsonl, write_meta
 
 BOXED_RE = re.compile(r"\\boxed\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}")
