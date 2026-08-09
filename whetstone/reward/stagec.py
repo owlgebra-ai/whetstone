@@ -77,7 +77,13 @@ ANSWER_BAND_F = 32             # SCA-style band half-width
 # Loop detectors, tuned to this register's observed failures (009 finding 14:
 # a line repeated 2,729×; a 35,085-char `chk:` chain; `case N:` to `case 713:`).
 LOOP_EXACT_MIN_RUN = 10        # identical consecutive lines
-LOOP_TEMPLATE_MIN_RUN = 6      # identical after digits are blanked (`case N:`)
+#: Raised 6 → 30 (activity 011 phase-2 audit): at 6 the digit-blanked rule
+#: fired on honest line-oriented enumeration — 8.0% of math and 13.9% of aimeh
+#: rollouts, 67%/47% of firings on strict-CORRECT work — while every true
+#: degenerate loop read also tripped the exact-run rule. 97% of the false
+#: firings sat at runs ≤ 20; 009's `case 1:`…`case 713:` target class runs
+#: far past 30 and is still caught.
+LOOP_TEMPLATE_MIN_RUN = 30     # identical after digits are blanked (`case N:`)
 
 I2_MIN_MARGIN = 0.30           # worst correct − best wrong
 
@@ -285,7 +291,11 @@ def detect_ngram_loop(think: str) -> Dict[str, object]:
     chunk formalism: this register is line-oriented and has no chunks.
     """
     lines = _think_lines(think)
-    if len(lines) < LOOP_TEMPLATE_MIN_RUN:
+    # Early-exit on the SMALLER of the two thresholds — when
+    # LOOP_TEMPLATE_MIN_RUN was raised to 30 (phase-2 audit) a guard on it
+    # alone silently disabled the exact-run rule for any think under 30
+    # lines, which is most of them. Caught by the battery before shipping.
+    if len(lines) < min(LOOP_EXACT_MIN_RUN, LOOP_TEMPLATE_MIN_RUN):
         return {"fired": False, "exact_run": 0, "template_run": 0}
 
     def _max_run(seq: Sequence[str]) -> int:

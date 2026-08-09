@@ -108,7 +108,8 @@ def score_sequence(model, ids, prompt_len: int, chunk: int, want_entropy: bool):
 
 # --- reward scoring for one group -------------------------------------------
 
-def score_group(row: dict, budget: ThinkBudget) -> dict:
+def score_group(row: dict, budget: ThinkBudget,
+                penalize_contradiction: bool = True) -> dict:
     """Rewards + diagnostics for one problem's K rollouts."""
     cands = row["candidates"]
     think_lens = [c["think_len"] for c in cands if c["g"] == 1]
@@ -120,7 +121,9 @@ def score_group(row: dict, budget: ThinkBudget) -> dict:
             completion_text=c["text"], think_len=c["think_len"],
             answer_len=c["answer_len"], g=c["g"], gate_reason=c["gate_reason"],
         )
-        breakdowns.append(compute_stagec_reward(view, row["ground_truth"], budget_B=B))
+        breakdowns.append(compute_stagec_reward(
+            view, row["ground_truth"], budget_B=B,
+            penalize_contradiction=penalize_contradiction))
     budget.update(think_lens)
     return {"breakdowns": breakdowns, "B": B,
             "correct": [b.r_acc > 0 for b in breakdowns],
@@ -174,6 +177,11 @@ def main(argv=None) -> int:
     ap.add_argument("--prefetch", action="store_true",
                     help="queue step N+1's rollouts before training on step N "
                          "so the two boxes overlap (010 finding 12)")
+    ap.add_argument("--contradiction_log_only", action="store_true",
+                    help="P7 §1b log-don't-penalize mode. Activity 011 phase-2 "
+                         "audit: the last-⇒ heuristic grabbed sub-conclusions "
+                         "and 69%% of firings hit strict-CORRECT rollouts on "
+                         "the math/aimeh sources; penalty off, curve stays")
     args = ap.parse_args(argv)
 
     import torch
@@ -345,7 +353,9 @@ def main(argv=None) -> int:
 
         kept, group_stats = [], []
         for row in rows:
-            sc = score_group(row, budget)
+            sc = score_group(
+                row, budget,
+                penalize_contradiction=not args.contradiction_log_only)
             keep, reason = dynamic_sampling_keep(sc["correct"])
             n_ok = sum(sc["correct"])
             curric.observe(row["uid"], n_ok, len(sc["correct"]))

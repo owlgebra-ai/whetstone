@@ -304,10 +304,26 @@ def test_leak_detector_ignores_mid_prose_math_notation(answer: str) -> None:
 # --- loop detector ----------------------------------------------------------
 
 def test_loop_detector_catches_case_enumeration() -> None:
+    """The 009 target class: `case 1:`…`case 713:` runs FAR past the raised
+    threshold. 29 templated lines is honest enumeration now (activity 011
+    phase-2 audit: at min-run 6 the rule fired on 8.0%/13.9% of math/aimeh
+    rollouts, mostly strict-correct); 40 identical-templated lines is a loop."""
     from whetstone.reward.stagec import detect_ngram_loop
 
-    think = "".join(f"case {i}: try {i}\n" for i in range(1, 30))
-    assert detect_ngram_loop(think)["fired"] is True
+    think40 = "".join(f"case {i}: try {i}\n" for i in range(1, 41))
+    assert detect_ngram_loop(think40)["fired"] is True
+
+
+def test_loop_detector_allows_honest_bounded_enumeration() -> None:
+    """Verbatim shape class from the phase-2 audit: a math rollout stepping
+    through ~a dozen templated candidate lines is work, not a loop."""
+    from whetstone.reward.stagec import detect_ngram_loop
+
+    think = "".join(f"n = {i}: sum = {i * (i + 1) // 2}, check mod 7 = "
+                    f"{(i * (i + 1) // 2) % 7}\n" for i in range(1, 13))
+    assert detect_ngram_loop(think)["fired"] is False
+    # And the exact-run rule is untouched: 10 identical lines still fire.
+    assert detect_ngram_loop("try again\n" * 10)["fired"] is True
 
 
 def test_loop_detector_ignores_an_honest_compact_trace() -> None:
