@@ -444,8 +444,59 @@ card's mean; log-only, no floor term, no Arm D unless the user reopens it;
 (2) the monolithic-generate bucketing limitation (22 h unresumable) spawned a
 standalone chunked-resume refactor task for pre-Phase-3.
 
+### Run 12 — 2026-08-09, phase-2 reward audit (subagent) → mid-phase boundary restart
+
+A second subagent read 12,864 phase-2 rollouts (steps 1–201, per-source
+stratified, 60+ verbatim reads weighted to the new sources). Full evidence:
+`/data/whetstone/runs/stagec/pilot2_phase2/reward_audit/`. Distilled verdicts:
+
+- **Template-loop detector (fix-before-more-steps, applied):** min-run 6
+  fired on honest line-oriented enumeration — 8.0% of `math:` and 13.9% of
+  `aimeh:` rollouts, **67%/47% of firings on strict-CORRECT work** — while
+  every true loop read also tripped the exact-run rule. `LOOP_TEMPLATE_MIN_RUN`
+  **6 → 30** (`cf6837b`); 009's `case 713:` class still fires (fixture).
+  The battery caught a bug in my own fix before it shipped: guarding the
+  early-exit on the raised threshold alone silently disabled the exact-run
+  rule for thinks under 30 lines — the guard now takes the min of the two.
+  The inert-statistic rule works when it is pointed at the fixer, too.
+- **Contradiction penalty (fix-before-more-steps, applied):** the last-⇒
+  heuristic grabs sub-conclusions; **69% of firings (385/554) hit
+  strict-CORRECT rollouts**. Stage C now runs P7 §1b's log-don't-penalize
+  mode (`--contradiction_log_only`); a tail-anchored redesign is queued for
+  the next boundary. The curve stays on the dashboard.
+- **Answer band misfits every non-gsm8k source (boundary item, NOT applied):**
+  correct-answer medians 584–876 tokens vs the 288±32 target; in-band rates
+  0.0–5.7%; the term is a constant shorten-answers pressure instead of a
+  band. Per-source targets from baseline correct-answer medians — decide at
+  the global-1000 endpoint (design change, not defect repair).
+- **Grading on the new sources: clean.** 0 register-math misses in 3,173
+  strict-mismatches; no aimeh leading-zero issue exists; one occurrence of
+  interval-vs-inequality (`x \geq 8` vs `[8,\infty)`) — log-only unless it
+  recurs.
+- **Pool data (applied):** all 43 amc golds int-normalized ("5.0" → "5" —
+  float golds let the as-scored suffix hole grade pred "0" correct, polluting
+  the lenient_only diagnostic); `aimeh:15358d4e` (gold "080 or 081") dropped
+  from pool + merged table — unmatchable under exact grading, would waste
+  rescue compute.
+- **aimeh cap-burn quantified: 13.6%** of aimeh rollouts hit the 12,288 cap
+  carrying 24.3% of aimeh tokens — but correct aimeh thinks have p90 8,285,
+  so the cap is not truncating the solvable distribution. Phase-3
+  cap/compute input; no reward change.
+- register_leak / answer_repeat / empty-think guard / lenient_only: **clean**
+  (0 answer-repeat in 12,864 — the LaTeX fix holds); all rates flat across 20
+  windows — no rot.
+
+**Restart mechanics:** trainer stopped at ~step 215, relaunched from
+`pilot2_phase2/ckpt/step0200` (global 600) — ≤15 steps discarded — in a fresh
+run dir `pilot2_phase2b` (reusing the old bus dir would have served stale
+step-1 responses to a restarted step counter), 400 steps to global 1000,
+identical config + `--contradiction_log_only`, reward at `cf6837b`, battery
+**176 green** first. Two more pgrep self-match near-misses during the
+cutover; the bracket-trick rule is now muscle memory tax.
+
 ## Conclusion
 
-(TBD — phase 2 to global 1000 in flight; owed at its endpoint: screens,
-memorization re-read under the final model, three-way re-bench, rescue decision,
-ROADMAP facts block, §12.6 pins, packet flips)
+(TBD — phase 2b to global 1000 in flight; owed at its endpoint: screens,
+memorization re-read under the final model, three-way re-bench, rescue
+decision, answer-band per-source decision, ROADMAP facts block, §12.6 pins,
+packet flips)
