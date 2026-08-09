@@ -516,6 +516,43 @@ Accuracy-axis damage stayed bounded throughout by invariant I2 (penalty stack
 the per-checkpoint diagnostics; rollout audits are now standing procedure at
 every pool change (this one existed because the user called for it).
 
+### Run 13 — 2026-08-09, round-2 audit (steps 601–~845) + a correction to Run 12b
+
+Auditor round 2 over 15,680 phase2b rollouts: **both fixes verified live**
+(template-loop 4.75% → 0.03% with the 5 residual firings still honest
+enumeration; `pen_contradiction` 0.0 on all 243 steps while the detector
+curve logs 777 firings, still 74% on strict-correct — the redesign case
+stands) and **no degeneracy appeared where the penalties were removed** (the
+old-threshold band runs flat, 50–74% strict-correct). No
+fix-before-more-steps items; open boundary items unchanged (contradiction
+tail-anchored redesign; per-source answer-band targets — band still dead
+off-gsm8k, in-band 0.0–6.0%). New Phase-3 cap evidence: aimeh cap-burn
+17.8% (up from 13.6%), and **20–25% of hard-source cap-hits contain a formed
+`\boxed{}` in the unclosed think's tail** — finished solutions scoring 0
+because the cap fell before `</think>`; a cap raise or a think-close reserve
+converts ~3.6% of aimeh rollouts to gradeable. Grading still clean (0 misses
+in 15,680; interval↔inequality now 3 total sightings, unsimplified-radical 1
+— below the ~0.1% action bar). Artifacts:
+`/data/whetstone/runs/stagec/pilot2_phase2b/reward_audit/`.
+
+**Correction to Run 12b (kept in place, 010 practice).** The "⇒ density
+rebounding 1.31 → 1.77" read was a **composition artifact**: the pooled
+per-100-lines instrument is sensitive to the batch source mix, which shifts
+between windows. Source-controlled to gsm8k+deepmath, the same script gives:
+armA 3.24→3.49 (flat), phase2 2.91→**1.83** (the suppression, confirmed),
+phase2b 2.02→**1.81** (**flat — NO recovery**), agreeing with the auditor's
+independent per-rollout instrument. The mechanism is obvious in hindsight:
+removing a downward pressure leaves a plateau, not a rebound — nothing in
+Stage C pushes ⇒ usage back up, **by design** ("no style anchor on think
+tokens; changing that register is the point"). So the ~45%-suppressed ⇒
+level is permitted style drift unless the endpoint dashboards tie it to
+capability or it starves the tail-anchored contradiction redesign of its
+anchor token. Symbol density stays on the endpoint dashboard; the
+composition-controlled instrument replaces the pooled one. Lesson filed
+beside findings 5 and 22: **an instrument that pools over a shifting
+composition cannot support a trend claim** — this project has now paid that
+tuition three times.
+
 ## Conclusion
 
 (TBD — phase 2b to global 1000 in flight; owed at its endpoint: screens,
