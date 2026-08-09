@@ -422,8 +422,30 @@ re-read vs the +5.32 baseline → worker + trainer, **600 steps global
 400→1000**, config unchanged (eps 0.2/0.2, λ_TEA 0, 8/step, prefetch,
 B floor 120), run dir `pilot2_phase2`.
 
+### Run 11 — 2026-08-08, phase-2 launch state + standing directives
+
+Merged table 8,674 rows; AIME census 43.4% mixed / 52.8% 0-of-8 (partly
+cap-inflated — at 12,288 the endpoint model averages ~10.6k output tokens per
+AIME rollout, bench p90 12.7–14.5k; **cap 16,384 for AIME-bearing pools is a
+Phase-3 boundary decision**, auditor quantifying cap-burn). Curriculum
+**4,957 mixed** (2,968/1,004/985 bands). Trainer running global 400→1000,
+~100–135 s/step.
+
+Memorization re-read (main table, original 4,000, within level): weighted
+delta **+6.29 (SE 1.08) vs baseline +5.32 (SE 1.86)** — aggregate stable
+(Δz ≈ 0.45), but the mid-band widened (L5 +9.6→+29.3, L6 +5.1→+16.0, L7
++8.2→+15.1, L9 +2.4→+10.3; small unseen ns). Confounds: curriculum tilt gave
+seen problems more RL draws; L1 ceiling compresses its delta. GLM derivation
+spot-check owed when GPU frees; phase-2 pool dilutes seen share 60%→28%.
+
+**User directives on record (2026-08-08):** (1) entropy decline during this
+RL phase is accepted — observed H drifting to ~0.58–0.75, at the pre-RL
+card's mean; log-only, no floor term, no Arm D unless the user reopens it;
+(2) the monolithic-generate bucketing limitation (22 h unresumable) spawned a
+standalone chunked-resume refactor task for pre-Phase-3.
+
 ## Conclusion
 
 (TBD — phase 2 to global 1000 in flight; owed at its endpoint: screens,
-memorization re-read, three-way re-bench of the final model, rescue decision,
+memorization re-read under the final model, three-way re-bench, rescue decision,
 ROADMAP facts block, §12.6 pins, packet flips)
