@@ -494,6 +494,28 @@ identical config + `--contradiction_log_only`, reward at `cf6837b`, battery
 **176 green** first. Two more pgrep self-match near-misses during the
 cutover; the bracket-trick rule is now muscle memory tax.
 
+### Run 12b — 2026-08-09, the arrow-density read (was the contradiction penalty damaging?)
+
+User question: did the 69%-false-positive contradiction penalty damage 200+
+steps of gradients? Measured directly — line-initial `⇒` per 100 think lines
+(the penalized pattern is intermediate `⇒`-conclusions), first-10 vs last-10
+steps of each segment:
+
+| segment | start → end |
+|---|---|
+| phase 1 (g1–100) | 3.24 → 3.49 (flat) |
+| cont (g101–400) | 3.11 → 3.21 (flat) |
+| **phase 2 (g401–600)** | **1.88 → 1.24 (−34%)** |
+| **phase 2b post-fix (g601–)** | **1.31 → 1.77 (rebounding)** |
+
+Verdict: no measurable suppression while firing was ~2–3% on the old sources;
+on the new sources the tripled false-positive rate suppressed the register's
+conclusion marker by a third in 200 steps; removal is already reversing it.
+Accuracy-axis damage stayed bounded throughout by invariant I2 (penalty stack
+0.35 < margin 0.90 — dampening, never inversion). The `⇒`-density curve joins
+the per-checkpoint diagnostics; rollout audits are now standing procedure at
+every pool change (this one existed because the user called for it).
+
 ## Conclusion
 
 (TBD — phase 2b to global 1000 in flight; owed at its endpoint: screens,
