@@ -553,6 +553,32 @@ beside findings 5 and 22: **an instrument that pools over a shifting
 composition cannot support a trend claim** — this project has now paid that
 tuition three times.
 
+### Run 14 — 2026-08-09/10, g900 milestone + user AMC-12 dataset into 2c-ii
+
+**Global-900 K=4 bench** (protocol-matched): MATH-500 **72.15 ± 0.93**
+(+13.55 vs init), AMC23 63.75 (+21.25), Minerva 20.13, AIME24 **35.83**
+(statistical parity with the original's cap-suppressed 38.33), AIME25 20.00.
+Pooled 41.1% → **52.5%** vs the original's 58.4% — two-thirds of the
+compression tax recovered at 2.5–4× shorter thinks. **Pass@4 pooled is at
+−1.61 from the original with MATH-500 pass@4 AHEAD (+0.40)**: the envelope
+survived; the residual is first-try reliability, which is what RL converts.
+Length table: the original loses 49%/63% of AIME24/25 attempts to the 16k cap
+(its AIME25 answer median is literally 0); g900 finishes 78%. Artifacts:
+`bench_g900/`, length comparison in this journal's assets.
+
+**User-curated AMC-12 dataset added to 2c-ii** (from
+`~/Claude/Projects/whetstone/amc_problems`, AoPS-extracted, key-verified,
+99.2% blind-resolve): main split 749 numeric self-contained problems →
+**677 survivors** after (i) metadata exclusion of ALL year-2023 (the amc23
+eval rewrote statements, so text gates alone could miss paraphrased twins —
+year-level exclusion is paraphrase-proof), (ii) exact gate (3 eval twins, 37
+pool dups vs aimo_amc/MATH), (iii) 8-gram gate (4 MATH-500 near-twins).
+Diagram/non-numeric/conflict splits excluded; AoPS `solution` column never
+copied (licence + no training need). Injected into the 2c-ii table as
+uncensused mixed at nominal p̂ = 0.375 (near the measured 43.6% on AMC-2022),
+flagged `uncensused_addition`; pool now **9,350 rows**. 2c-ii curriculum will
+carry ~5,900 mixed persons incl. 867 cap-promotions + 677 AMC-12.
+
 ## Conclusion
 
 (TBD — phase 2b to global 1000 in flight; owed at its endpoint: screens,
