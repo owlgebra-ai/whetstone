@@ -1,10 +1,10 @@
 # 011 — Stage C rerun: entropy-regulated DAPO (pilot 2 → Phase 1)
 
 - **Packet:** [packets/P7b-stage-c-entropy-fix.md](packets/P7b-stage-c-entropy-fix.md)
-- **Status:** in-progress
+- **Status:** done — F4 re-gate substantive PASS; Stage C run to its endpoint (global 1200)
 - **Machine(s):** mac (code) / turing (rollout worker + all screens) / spark (trainer, fp32 AdamW, resident frozen π_0)
-- **Code commit(s):** (claim commit TBD)
-- **Started / finished:** 2026-08-06 → …
+- **Code commit(s):** `2ded5b3` (claim) → `2f1cf14`+ (see log)
+- **Started / finished:** 2026-08-06 → 2026-08-11
 
 ## Goal
 
@@ -577,11 +577,130 @@ Diagram/non-numeric/conflict splits excluded; AoPS `solution` column never
 copied (licence + no training need). Injected into the 2c-ii table as
 uncensused mixed at nominal p̂ = 0.375 (near the measured 43.6% on AMC-2022),
 flagged `uncensused_addition`; pool now **9,350 rows**. 2c-ii curriculum will
-carry ~5,900 mixed persons incl. 867 cap-promotions + 677 AMC-12.
+carry ~5,900 mixed problems incl. 867 cap-promotions + 677 AMC-12.
+
+### Run 15 — 2026-08-10/11, phases 2c-i/2c-ii complete + the global-1200 endpoint battery
+
+2c-i (900→1050, cap 16,384) and 2c-ii (1050→1200, +867 cap-promotions +677
+AMC-12 injected) both ran clean. Endpoint battery (ladder screens one
+session + K=4 bench):
+
+**Screen ladder (200-problem GSM8K, extended grader, init re-screened):**
+66.75 ± 1.25 → 71.62 (g100) → 75.31 (g400) → 79.44 (g900) → 79.81 (g1050) →
+**81.00 ± 1.91 (g1200)**, ΔP@1 +14.25, McNemar z = 10.70, **monotone across
+1,200 steps, never a regression**; eval g-rate 95.94% → 99.50%; pass@8 → 95.5%.
+Think median 219 → 288 (+31%); **think-per-correct bottomed at g400 (565) and
+rose to 849 by g1200** — the frontier has two ends: **g400 = max-efficiency**
+(`pilot2_armA_cont/ckpt/step0300`), **g1200 = max-accuracy**
+(`pilot2_phase2c2/ckpt/step0150`).
+
+**Bench (5 suites, K=4, pooled over 872):** 41.06 (init) → 45.70 (g100) →
+52.49 (g900) → **53.35 (g1200)** vs the original checkpoint's 58.37 — **71%
+of the Stage-B compression tax recovered at 2.4–3× shorter thinks**; pass@4
+pooled 63.07 vs 65.25 (MATH-500 at parity). The last 300 steps bought +0.86
+pooled while the in-distribution screen still climbed +1.56 — the
+external-deceleration signature of a phase endpoint. Verdict: **stop here**;
+the frontier, not the calendar, called it.
 
 ## Conclusion
 
-(TBD — phase 2b to global 1000 in flight; owed at its endpoint: screens,
-memorization re-read under the final model, three-way re-bench, rescue
-decision, answer-band per-source decision, ROADMAP facts block, §12.6 pins,
-packet flips)
+**The P7b diagnosis is confirmed end to end, and Stage C now works.** One
+mechanically-minimal change — symmetric clipping (ε 0.2/0.2) with λ_TEA = 0 —
+took Stage-C RL from activity 010's F4 FAIL (entropy 1.05→3.18, format
+collapse, −2.19 pts) to a 1,200-step campaign with **never a regression**:
+strict Pass@1 66.75% → **81.00%** on the screen, pooled external bench
+41.06% → **53.35%** against the original checkpoint's 58.37%, at 2.4–3×
+shorter thinking. F4's clause 1 passed at every gate; clause 2's literal
+Pareto letter (think median ≤ init) was never met and was adjudicated
+CONTINUE under standing user directives — the criterion's failure quadrant
+(accuracy down, verbosity up) never occurred; its letter-failures were all
+accuracy-up-at-modest-think-growth.
+
+Deliverable checkpoints, both preserved:
+- **max-accuracy:** `/data/whetstone/runs/stagec/pilot2_phase2c2/ckpt/step0150` (global 1200)
+- **max-efficiency:** `/data/whetstone/runs/stagec/pilot2_armA_cont/ckpt/step0300` (global 400)
+
+**Open items handed to Phase 3 / P8:** per-source answer-band targets (band
+inert off-gsm8k, in-band 0.0–6.0%); tail-anchored contradiction redesign
+(detector 69–74% FP on correct work, currently log-only); chunked/resumable
+bucketing (spawned task); GLM memorization spot-check (mid-band seen-delta
+widened L5–L9 under curriculum-exposure confounds); non-numeric AMC-12 split
+behind a gradeability filter; rescue round for the surviving 0/8 set; P8
+full-protocol (K=8/32k) comparisons incl. SCA/DeepCompress baselines.
+
+## Stage C — the complete procedure (as validated by activities 010 + 011)
+
+The runbook for re-running Stage C on a new checkpoint. Design §5 says what;
+this says how, with every number that survived contact.
+
+**0. Preconditions (all before step 1)**
+1. Entropy card on the init (`entropy_audit.py`, 009-pinned protocol) — decides
+   preservation vs regulation posture. This checkpoint arrived at 10× baseline
+   median: regulation, i.e. **symmetric clipping, no TEA, no ceiling term needed**.
+2. K=8 census of the full pool at the TRAINING sampler (T=1.0/top-p 1.0, cap
+   ≥ p95 of honest generations — 12,288 for GSM8K+DeepMath, 16,384 once
+   AIME-class sources enter). Census and rollouts must share a sampler.
+   Curriculum = mixed (1–7/8) rows only; 0/8 → rescue; 8/8 → out.
+3. Reward battery green (176 tests at close), invariants asserted at import
+   (I2 margin 0.90 ≥ 3× the max penalty stack — this is what bounds every
+   later reward defect to dampening, never inversion).
+4. Baselines re-screened through the same harness in the same session —
+   never quoted from a journal (010 f22; init drifted 0.5 pts between
+   sessions on identical protocol).
+
+**1. Loop configuration (the pins)**
+DAPO, token-level, **eps 0.2/0.2 symmetric**; λ_TEA 0; LR 1e-6 fp32 AdamW;
+group K=8; **8 problems/step, `--prefetch`**; sync every 8 (bf16 COPY export
++ bit-identity assert); ckpt every 25; λ_align 0.1 answer-KL to π_0 (k3);
+SCA answer band (per-source targets pending); think budget B group-relative
+(`effective_B` = max(min(B, max), group p25), floor 120); dynamic sampling
+drops all-correct/all-wrong; difficulty amplification on positive think
+advantages; **contradiction penalty log-only**; `LOOP_TEMPLATE_MIN_RUN 30`;
+strict grading + the seven deterministic equivalence classes
+(`normalize_ext`), never tolerance.
+
+**2. Topology & ops**
+spark = trainer (fp32 AdamW — turing OOMs), resident frozen π_0; turing =
+worker + every screen/census/bench; `/data` bus, temp-then-rename. After any
+spark reboot: `systemctl is-failed data.mount` FIRST. Every GPU launch:
+kill by `nvidia-smi --query-compute-apps` PIDs, then require **three
+consecutive <200 MiB readings** (a crashed vLLM can hang in teardown holding
+30 GB, invisible to chain logs). `pgrep -f` patterns must never appear
+verbatim in your own command line (bracket trick) — this bit four times.
+Segment restarts use a FRESH run dir (a reused bus dir serves stale step-1
+responses to a restarted counter).
+
+**3. Cadence — segments of 100–400 steps, gates at every boundary**
+- Per-step diagnostics: H_think, mtc + g over ALL candidates (incl. dropped
+  groups), batch p̂ beside acc, drift (monotone or stop), clip fracs,
+  answer-KL, per-term coverage. Trends ONLY from fixed screens or
+  composition-controlled instruments — training curves track sampling
+  (r = +0.77), and pooled instruments over a shifting source mix lie (the
+  ⇒-density "rebound" artifact).
+- Boundary gate: same-session ladder screen (K-draw mean ± std, paired
+  McNemar, think-per-correct) + K=4 external bench when direction changes.
+- **Rollout audit at every pool change** (subagent, distilled-output
+  contract): detectors validated on old sources WILL false-fire on new ones
+  (leak → `Let:`; repeat → `$$`; template-loop → enumeration; contradiction
+  → sub-conclusions). Reward changes land only at boundaries, battery first;
+  defect repairs only, design changes queue for phase ends.
+- Restarts are bf16-checkpoint + fresh optimizer (fp32 state dies with the
+  process); ≤15 steps lost per boundary at ckpt-every-25.
+
+**4. Data expansion (mid-campaign, validated)**
+Every source addition: exact-normalized gate vs every eval suite AND the
+existing pool, then the 8-gram gate (`check_contamination --apply`) —
+paraphrase-suspect sources (amc23 rewrites) additionally excluded by
+METADATA (whole year), not text. Unmeasured problems may skip the census:
+inject as `bucket=mixed` at nominal p̂ (0.125 for suspected-hard, 0.375 for
+unknown-mid), flagged `uncensused_*` — dynamic sampling adjudicates free
+(all-wrong drops; any 1/8 success teaches). Benchmark problems NEVER enter
+training or rescue.
+
+**5. Endpoint rule**
+Run segments while the fixed screen climbs AND the external bench moves.
+Stop when external gains decelerate to noise while in-distribution still
+climbs (g1200: +0.86 pooled per 300 steps vs +7 earlier). Keep BOTH frontier
+ends: max-accuracy and max-efficiency (think-per-correct minimum). Re-census
+at the endpoint feeds the next phase and the memorization re-read
+(within-level, vs the +5.32 pre-RL baseline, composition-controlled).

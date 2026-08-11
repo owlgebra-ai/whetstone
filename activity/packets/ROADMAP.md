@@ -115,6 +115,63 @@ Suite roles — three tiers with different touch frequencies, so headline number
 - **TODO (next executing agent, ~30 min on spark):** `gsm8k_test.jsonl` is not yet built — add the suite to `build_eval_sets.py` (`openai/gsm8k` config `main`, split `test`, same schema, pin revision) and emit to `/data/whetstone/eval/`. Contamination pre-cleared: activity 002 Run 5 checked the train pool against GSM8K-test — 0 hits.
 - Baselines (SCA / DeepCompress / prompted-compressor arms) run the identical protocol from the same checkpoint — numbers are only comparable inside the same tier and protocol.
 
+## Facts pinned by activity 011 (P7b / F4 re-gate + the Stage-C campaign) — binding on all later packets
+
+- **Symmetric clipping (eps 0.2/0.2, λ_TEA 0) is THE fix for finding 23.** 100
+  steps: H 1.22→0.99 (pilot 1: 1.05→3.18), mtc 7.5%→3.9% (was 5.6→35.6%),
+  +4.87 pts strict P@1. Across the full 1,200-step campaign entropy stayed
+  regulated (ending ~0.55–0.66, user-accepted decline) and no thermostat/TEA
+  arm was ever triggered. Clip-higher is for collapsed checkpoints only.
+- **Stage C endpoint exists — P8 is UNBLOCKED.** Screen 66.75→**81.00** (z 10.7,
+  monotone, never a regression); pooled 5-suite bench 41.06→**53.35** vs the
+  original's 58.37 (71% of the Stage-B tax recovered at 2.4–3× shorter
+  thinks); pass@4 pooled 63.07 vs 65.25, MATH-500 pass@4 at parity.
+  Checkpoints: max-accuracy `pilot2_phase2c2/ckpt/step0150` (g1200);
+  max-efficiency `pilot2_armA_cont/ckpt/step0300` (g400, think/correct 565
+  vs init 840). Stop signal: external gains decelerated to +0.86/300 steps
+  while the screen still climbed.
+- **The strict grader carries seven deterministic equivalence classes**
+  (`normalize_ext`, +6.8/+5.5 pts of measured false negatives on
+  MATH-500/Minerva) — equivalence only, tolerance rejected (698≠700 pinned).
+  verify.py untouched, ever.
+- **Detectors validated on one distribution false-fire on the next.** Four
+  instances now: leak→`Let:` headers (IGNORECASE), repeat→`$$` blocks,
+  template-loop→honest enumeration (min-run 6→**30**), contradiction→
+  sub-conclusions (69–74% of firings on strict-CORRECT; **log-only**, tail-
+  anchored redesign owed). Rule: rollout audit (subagent, distilled output)
+  at EVERY pool change; reward changes at boundaries only, battery first.
+- **A penalty's false positives sculpt style measurably**: the contradiction FP
+  suppressed line-initial `⇒` by 34% in 200 steps; removal PLATEAUS, does not
+  rebound (nothing pushes style back — by design). And: **a pooled instrument
+  over a shifting source mix cannot support a trend claim** (the "rebound" was
+  composition; third tuition payment after 010 f5/f22).
+- **Uncensused injection works and replaces mid-phase re-censusing**: unmeasured
+  problems enter as mixed at nominal p̂ (0.125 hard / 0.375 unknown), flagged;
+  dynamic sampling adjudicates free. A 9h census was skipped this way with no
+  observed cost. Census/rollout sampler consistency still binds for measured rows.
+- **Cap raises are boundary events**: at 12,288, 13.6–17.8% of aimeh rollouts
+  truncated and 20–25% of those held a formed \boxed{} in the unclosed think.
+  Cap 16,384 for AIME-bearing pools; the census must be re-run or the affected
+  rows injected uncensused.
+- **Contamination defense in depth**: exact-normalized gate + 8-gram gate +
+  METADATA exclusion for paraphrase-suspect sources (amc23 rewrites → whole
+  year 2023 dropped). The gates caught eval twins hiding inside training sets
+  four separate times (AMC-2023 in aimo, MATH-500 near-dups in hendrycks AND
+  in AIME-hist AND in AMC-12).
+- **Ops canon additions**: GPU launches verify clean via compute-apps PIDs + 3
+  consecutive <200 MiB readings (hung vLLM teardown holds 30 GB invisibly);
+  segment restarts need a fresh bus dir; `pgrep -f` self-match bit four times
+  (bracket trick, always); after spark reboot check `data.mount` first;
+  bucketing is monolithic/non-resumable (chunked refactor spawned).
+- **Memorization**: within-level seen-delta +6.29 (SE 1.08) vs +5.32 baseline —
+  aggregate stable, mid-band widened under curriculum-exposure confounds; GLM
+  derivation spot-check owed before any strong claim. Phase-2 pool dilution
+  (seen 60%→28%) is the standing mitigation.
+- **Pool at close: 9,350 problems** (GSM8K 2,000 / DeepMath 2,000 / hendrycks-
+  MATH-train 3,780 / aimo-AMC-2022 43 / AIME-hist-1983-2023 851 / AMC-12
+  2000–2025-minus-2023 677), all double-gated. Phase-3 material: per-source
+  answer bands; AIME25+Minerva capability gap; 0/8 rescue round.
+
 ## Facts pinned by activity 010 (P7 / **F4 gate**) — **F4 FAILS**; binding on all later packets
 
 - **F4 FAILS on both clauses.** 60-step pilot, 4 problems/step × K=8, τ_c 1.0,

@@ -1,6 +1,6 @@
 # P7b — Stage C rerun: entropy-regulated DAPO (pilot 2 → Phase 1)
 
-STATUS: in-progress (activity 011)
+STATUS: done (activity 011) — F4 substantive PASS; Stage-C endpoint g1200 (+ g400 efficiency alt); P8 unblocked
 MACHINES: turing = rollout worker (+ all screens); spark = trainer (fp32 AdamW, resident frozen π_0). Topology is **forced, not preferred** — turing OOMs on fp32 AdamW (010 f7).
 DEPENDS ON: activity 010 (F4 FAIL + diagnosis); all P7 infrastructure (built, 131 tests, reusable as-is)
 BLOCKS: P7 Parts 3–5 (Phase 1/2/rescue); P8
