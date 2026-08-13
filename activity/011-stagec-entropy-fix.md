@@ -628,6 +628,12 @@ widened L5–L9 under curriculum-exposure confounds); non-numeric AMC-12 split
 behind a gradeability filter; rescue round for the surviving 0/8 set; P8
 full-protocol (K=8/32k) comparisons incl. SCA/DeepCompress baselines.
 
+**Dataset provenance** for every source added during the campaign — origins,
+splits, gate counts, census status, and the uncensused-injection flags — is
+documented standalone in
+[assets/011/pool_provenance.md](assets/011/pool_provenance.md) (copy at
+`/data/whetstone/data/pool/PROVENANCE.md`).
+
 ## Stage C — the complete procedure (as validated by activities 010 + 011)
 
 The runbook for re-running Stage C on a new checkpoint. Design §5 says what;
