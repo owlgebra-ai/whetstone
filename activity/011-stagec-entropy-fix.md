@@ -645,6 +645,77 @@ correlated collapse means same-policy draws mostly replicate the shared
 wrong guess; (iii) re-census (or online-update) injected p̂, raise their
 draw share, retire the outgrown all-correct rows.
 
+### Reward-layer fix queue — specified for review (Phase-3 inputs, NOT yet implemented)
+
+Everything below lives in `whetstone/reward/` (verify.py never moves). Each
+item: defect → evidence → proposed change → what stays invariant → tests.
+Standing rules apply to any implementation: battery green before first use,
+equivalence-never-tolerance, every detector logs its inert constant.
+
+**R1 — boxed-answer extraction: first → last (strict grader).**
+- *Defect:* `extract_answer_strict` takes the FIRST `\boxed{}` after
+  `</think>`; models that restate or correct themselves get their earlier
+  (often wrong or malformed) box graded. 17% of the read 2c-ii failures
+  (16/95) were this class; ≥65/2,025 wrong candidates corpus-wide contain a
+  boxed value that verifies (lower bound, equivalence misses excluded);
+  exemplars in `rollout_variation_audit/near_miss_candidates.jsonl`.
+- *Proposed:* grade the LAST boxed in the answer segment (aligning with v1
+  §6.11's `final_block` "last terminal commit" principle already used by the
+  structural detectors); fall through to the existing ladder otherwise.
+- *Invariant:* refusal on unclosed think and the no-suffix rule untouched —
+  this changes WHICH box is read, never WHETHER scratchpads are mined.
+- *Tests:* audit exemplars as fixtures (wrong-then-corrected → correct;
+  correct-then-restated → correct); negative control: boxed-in-think with
+  unclosed block still refused.
+
+**R2 — normalize_ext equivalence classes 8–11.**
+All deterministic notational equivalence; the 2%-tolerance class stays
+rejected. Evidence rates below the ~0.1% bar were logged-only until this
+audit moved two of them into the failure anatomy:
+- *R2a word-form constants:* `\text{Infinite}`/`\text{infinity}` ≡
+  `\infty` (read 3× in 2c-ii failures).
+- *R2b trailing percent:* `18\%` ≡ `18` when the bare numerics match (AMC
+  convention; strip only a TRAILING `\%`/`%`).
+- *R2c trailing unit words:* `350 seconds`/`350\text{ cm}` ≡ `350` — strip a
+  trailing unit token only when the leading numeric equals the gold exactly.
+- *R2d (still log-only, 3+1 sightings):* interval ↔ inequality
+  (`x \geq 8` ≡ `[8,\infty)`) and unsimplified radicals (`\sqrt{801}` ≡
+  `3\sqrt{89}`) — implement only if Phase-3 audits show them past 0.1%.
+- *Tests:* positive fixture per class from the audit dumps + negative
+  controls (`18\%` vs gold `0.18` must NOT match via naive strip; `350
+  seconds` vs gold `350 minutes`-style golds unaffected since golds are bare).
+
+**R3 — contradiction detector, tail-anchored redesign (currently log-only).**
+- *Defect:* last-`⇒` heuristic grabs sub-conclusions; 69–74% of firings hit
+  strict-CORRECT rollouts (both phase-2 audits); its false pressure measurably
+  suppressed the register's `⇒` marker (−34% in 200 steps, plateaued).
+- *Proposed:* compare the boxed answer only against the FINAL register line /
+  last ~200 chars of the think, and only when that tail contains an explicit
+  conclusion form (`⇒ <value>` as the last register statement); undecidable →
+  no fire (existing rule). Re-enable the penalty only after a fresh audit
+  shows FP < ~10% on all sources.
+- *Tests:* the four verbatim FP shapes from Runs 12–13 dumps must NOT fire;
+  005's true contradiction shape (think 6200 / answer 6600) must fire.
+
+**R4 — per-source answer-band targets.**
+- *Defect:* the 288±32 band (π_0-anchored on GSM8K) misfits every other
+  source — in-band rates 0.0–6.0%, band multiplier means 0.19–0.46 — so the
+  bonus is inert and its gradient is a constant shorten-answers pressure.
+- *Proposed:* target = per-source median answer length of strict-CORRECT
+  rollouts from the phase-endpoint census (measured, not designed); band form
+  and W_BAND unchanged; log per-source in-band rate (inert constant: ~0 means
+  the target is wrong again).
+- *Note:* design change, not defect repair — needs its own boundary and a
+  one-variable segment if its effect is to be attributable.
+
+**R5 — bail-marker diagnostic (log-only, NOT a penalty).**
+- *Signal:* "given the time I've spent…"-class self-reported guessing marks
+  24.6% of wrong vs 2.2% of correct candidates (2c-ii). Useful as a dashboard
+  curve and possibly a Phase-3 abstention/confidence feature. Explicitly NOT
+  proposed as a penalty: punishing honesty about guessing teaches confident
+  confabulation — the 010 f21 lesson (opposite fixes for opposite diagnoses)
+  applies before any such term.
+
 ## Conclusion
 
 **The P7b diagnosis is confirmed end to end, and Stage C now works.** One
