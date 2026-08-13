@@ -602,6 +602,49 @@ pooled while the in-distribution screen still climbed +1.56 — the
 external-deceleration signature of a phase endpoint. Verdict: **stop here**;
 the frontier, not the calendar, called it.
 
+### Run 16 (post-close addendum) — 2026-08-13, 2c-ii rollout-variation audit (user question)
+
+Subagent read of the final segment's 9,600 rollouts (1,200 groups; 47 read
+verbatim). Artifacts:
+`/data/whetstone/runs/stagec/pilot2_phase2c2/rollout_variation_audit/`.
+
+**Variation is two-layered.** Token-level: zero collapse — every group 8/8
+distinct texts, ~0 near-duplicate pairs, think 8-gram Jaccard 0.006.
+Semantic: **~80% of read groups take ONE macro-approach locally reworded**;
+genuine method contrast in ~1/5. Hard band (p̂<3/8): within-group think
+spread σ/med 0.34 vs 0.57 easy, mean n_correct 2.07, and the failure mode is
+**correlated wrong-answer collapse** — independent draws converge on the SAME
+wrong value (7/8 boxed the same wrong answer on a read math problem; 5/8 on
+an aimeh one). All-wrong groups look textually diverse but carry zero
+contrast. This is the mechanistic answer to the 900→1200 plateau: where
+headroom remained, the draws agreed on the same mistake.
+
+**Failure split (95 failed draws in 28 mixed groups):** 42% same-approach
+arithmetic slip + 16% bail/guess (**58% RL-fixable**); 13% wrong approach
+(envelope-bound); 13% format/cap; **17% verifier-boundary** — a NEW defect
+class: strict grades the FIRST boxed post-`</think>`, and `\text{Infinite}`
+≠ `\infty`, `18\%` ≠ `18`, "350 seconds" ≠ `350`; 65/2,025 wrong candidates
+corpus-wide contain a boxed value that verifies (lower bound). Bail markers
+("given the time I've spent…") appear in 24.6% of wrong vs 2.2% of correct
+candidates — a usable abstention signal.
+
+**Injected-cohort adjudication (the census-skip verdict):** amc12 additions
+**taught** — 64 drawn, 57% mixed / 29% all-correct (≥ the measured-mixed
+comparator), though p̂ stayed frozen at the 0.375 injection default (stale
+banding). The 867 cap-promotions were **65% all-wrong when drawn, 0
+all-correct** — the raised cap alone rescued few; they are rescue clientele,
+as the 0/8 label originally said. Coverage was tiny either way (6–9% of each
+cohort, drawn once). Also: **44% of the measured-mixed comparator's draws
+came back all-correct** — the pool has outgrown its g400-era ratings.
+
+**Phase-3 actions from this audit** (appended to the hand-off list): (i)
+grading shims in the reward layer — last-or-any-boxed + `\text{}`/percent/
+units equivalence (17% of read failures are reward noise inverting group
+contrast); (ii) K=16 on the hard band only *paired with* pedagogy rescue —
+correlated collapse means same-policy draws mostly replicate the shared
+wrong guess; (iii) re-census (or online-update) injected p̂, raise their
+draw share, retire the outgrown all-correct rows.
+
 ## Conclusion
 
 **The P7b diagnosis is confirmed end to end, and Stage C now works.** One
